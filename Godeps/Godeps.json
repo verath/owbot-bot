@@ -1,0 +1,12 @@
+{
+	"ImportPath": "github.com/verath/owbot-bot",
+	"GoVersion": "go1.6",
+	"GodepVersion": "v74",
+	"Deps": [
+		{
+			"ImportPath": "github.com/gorilla/websocket",
+			"Comment": "v1.0.0-15-g54f9dec",
+			"Rev": "54f9decdbfb3fe254c5df3d5aa234480989f4af0"
+		}
+	]
+}
