@@ -11,7 +11,29 @@ const (
 	PAYLOAD_GATEWAY_IDENTIFY      = 2
 	PAYLOAD_GATEWAY_STATUS_UPDATE = 3
 	PAYLOAD_GATEWAY_HELLO         = 10
+	PAYLOAD_GATEWAY_HEARTBEAT_ACK = 11
 )
+
+// Helper function for getting the name of a payload from its
+// op code. Used for logging.
+func PayloadOpToName(op int) string {
+	switch op {
+	case PAYLOAD_GATEWAY_DISPATCH:
+		return "Dispatch"
+	case PAYLOAD_GATEWAY_HEARTBEAT:
+		return "Heartbeat"
+	case PAYLOAD_GATEWAY_IDENTIFY:
+		return "Identify"
+	case PAYLOAD_GATEWAY_STATUS_UPDATE:
+		return "Status Update"
+	case PAYLOAD_GATEWAY_HELLO:
+		return "Hello"
+	case PAYLOAD_GATEWAY_HEARTBEAT_ACK:
+		return "Heartbeat ACK"
+	default:
+		return "UNKNOWN"
+	}
+}
 
 // https://discordapp.com/developers/docs/topics/gateway#gateway-op-codespayloads
 type GatewayPayload struct {

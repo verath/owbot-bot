@@ -45,7 +45,12 @@ func (s *Session) CreateMessage(channelId string, content string) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("authorization", s.token)
+
+	s.RLock()
+	token := s.token
+	s.RUnlock()
+
+	req.Header.Set("authorization", token)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}

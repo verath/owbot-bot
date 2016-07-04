@@ -16,13 +16,16 @@ type Session struct {
 	readyHandlers []ReadyHandler
 	msgHandlers   []MessageHandler
 
-	botId string
-	token string
+	botId string // The botId of the account
+	token string // The secret token of the account
 
-	sendChan          chan GatewayPayload
-	conn              *websocket.Conn
-	heartbeatInterval time.Duration
-	seqNum            *int
+	sendChan chan GatewayPayload // A channel used for queuing payloads to send
+	conn     *websocket.Conn     // The websocket connection to Discord
+
+	isReady           bool          // A flag used to know if the ready event has been received
+	gatewayUrl        string        // A cached value of the Discord wss url.
+	heartbeatInterval time.Duration // The heartbeat interval to use for heartbeats
+	seqNum            *int          // The latest sequence number received, used in heartbeats
 }
 
 func (s *Session) AddReadyHandler(handler ReadyHandler) {
