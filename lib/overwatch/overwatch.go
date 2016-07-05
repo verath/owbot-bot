@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"errors"
 )
 
 const (
@@ -56,6 +57,10 @@ func (ow *Overwatch) GetStats(battleTag string) (*UserStats, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, errors.New("Non-200 response")
+	}
 
 	userStats := UserStats{}
 	err = json.NewDecoder(resp.Body).Decode(&userStats)
