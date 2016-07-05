@@ -3,15 +3,20 @@ package overwatch
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/golang-lru"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
-	API_BASE_URL         = "https://owapi.net/api/v2"
-	USER_STATS_CACHE_TTL = 10 * time.Minute
+	API_BASE_URL = "https://owapi.net/api/v2"
+
+	// The number of user stats entries to cache
+	USER_STATS_CACHE_SIZE = 200
+
+	// Time before user stats is considered stale and should be refetched
+	USER_STATS_CACHE_DURATION = 15 * time.Minute
 )
 
 type UserStats struct {
@@ -33,30 +38,14 @@ type userStatsCacheEntry struct {
 }
 
 type Overwatch struct {
-	sync.RWMutex
-
-	userStatsCache map[string]userStatsCacheEntry
+	userStatsCache *lru.ARCCache
 }
 
-func (o *Overwatch) getStatsFromCache(battleTag string) (*UserStats, bool) {
-	o.RLock()
-	defer o.RUnlock()
-
-	cacheEntry, exist := o.userStatsCache[battleTag]
-	if !exist {
-		return nil, false
-	}
-	if time.Since(cacheEntry.addedAt) > USER_STATS_CACHE_TTL {
-		return nil, false
-	}
-	return cacheEntry.UserStats, true
-}
-
-func (o *Overwatch) GetStats(battleTag string) (*UserStats, error) {
+func (ow *Overwatch) GetStats(battleTag string) (*UserStats, error) {
 	// Url friendly battleTag
 	battleTag = strings.Replace(battleTag, "#", "-", -1)
 
-	if userStats, ok := o.getStatsFromCache(battleTag); ok {
+	if userStats, ok := ow.getUserStatsFromCache(battleTag); ok {
 		return userStats, nil
 	}
 
@@ -75,15 +64,29 @@ func (o *Overwatch) GetStats(battleTag string) (*UserStats, error) {
 	}
 
 	// Store to cache
-	o.Lock()
-	o.userStatsCache[battleTag] = userStatsCacheEntry{&userStats, time.Now()}
-	o.Unlock()
+	cacheEntry := userStatsCacheEntry{&userStats, time.Now()}
+	ow.userStatsCache.Add(battleTag, cacheEntry)
 
 	return &userStats, nil
 }
 
-func NewOverwatch() Overwatch {
-	return Overwatch{
-		userStatsCache: make(map[string]userStatsCacheEntry),
+// Returns a cached UserStats entry, if one exist and the data is not considered stale
+func (ow *Overwatch) getUserStatsFromCache(battleTag string) (*UserStats, bool) {
+	if cacheEntry, ok := ow.userStatsCache.Get(battleTag); ok {
+		userStatsCacheEntry := cacheEntry.(userStatsCacheEntry)
+		if time.Since(userStatsCacheEntry.addedAt) <= USER_STATS_CACHE_DURATION {
+			return userStatsCacheEntry.UserStats, true
+		}
 	}
+	return nil, false
+}
+
+func NewOverwatch() (*Overwatch, error) {
+	userStatsCache, err := lru.NewARC(USER_STATS_CACHE_SIZE)
+	if err != nil {
+		return nil, err
+	}
+	return &Overwatch{
+		userStatsCache: userStatsCache,
+	}, nil
 }

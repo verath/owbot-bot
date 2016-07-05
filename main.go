@@ -30,7 +30,7 @@ type Bot struct {
 	botId                string
 	token                string
 	discordIdToBattleTag map[string]string
-	overwatch            overwatch.Overwatch
+	overwatch            *overwatch.Overwatch
 	session              discord.Session
 }
 
@@ -97,22 +97,28 @@ func (b *Bot) onChannelMessage(s *discord.Session, msg *discord.Message) {
 	}
 }
 
-func (b *Bot) Run() {
-	b.overwatch = overwatch.NewOverwatch()
-	b.session = discord.NewSession(b.botId, b.token)
+func (b *Bot) Run() error {
+	overwatch, err := overwatch.NewOverwatch()
+	if err != nil {
+		return err
+	}
+	b.overwatch = overwatch
 
+	b.session = discord.NewSession(b.botId, b.token)
 	b.session.AddReadyHandler(b.onSessionReady)
 	b.session.AddMessageHandler(b.onChannelMessage)
 
-	err := b.session.Connect()
+	err = b.session.Connect()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	// Run until asked to quit
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, os.Kill)
 	<-c
+
+	return nil
 }
 
 func NewBot(botId string, token string) *Bot {
@@ -140,5 +146,5 @@ func main() {
 	}
 
 	bot := NewBot(botId, token)
-	bot.Run()
+	log.Fatal(bot.Run())
 }
