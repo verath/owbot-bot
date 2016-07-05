@@ -23,7 +23,8 @@ func (s *Session) Connect() error {
 		return errors.New("Already connected")
 	}
 
-	// Get and cache the socket gateway URL
+	// Get and cache the socket gateway URL, the cached value is used
+	// for reconnecting
 	if s.gatewayUrl == "" {
 		gateway, err := s.GetGateway()
 		if err != nil {
@@ -64,28 +65,34 @@ func (s *Session) UpdateStatus(idleSince int, gameName string) error {
 	return nil
 }
 
-func (s *Session) sendPayload(payload GatewayPayload) {
-	s.sendChan <- payload
-}
-
-// listenRecv listens for data from Discord, and dispatches it on a new go-routine
+// listenRecv listens for data from Discord, and dispatches it on a new go-routine.
+// listenRecv stops itself, and calls reconnect, when failing to read from the socket.
 func (s *Session) listenRecv() {
+	s.RLock()
+	conn := s.conn
+	s.RUnlock()
 	for {
-		payload := RawGatewayPayload{}
-
-		s.RLock()
-		conn := s.conn
-		s.RUnlock()
-
-		err := conn.ReadJSON(&payload)
+		// Read raw message from websocket conn. On error, stop the current
+		// listenRecv loop and start trying to reconnect
+		_, r, err := conn.NextReader()
 		if err != nil {
-			log.Fatal(err)
+			log.Println("Error reading from socket, reconnecting...")
+			s.reconnect()
+			break
+		}
+
+		// Parse the message as json and dispatch
+		payload := RawGatewayPayload{}
+		if err = json.NewDecoder(r).Decode(&payload); err != nil {
+			log.Println("Error decoding payload", err)
+			continue
 		}
 		go s.handlePayload(payload)
 	}
 }
 
-// Send listens for data to be sent to Discord, sent on the s.sendChan
+// Send listens for data to be sent to Discord, sent on the s.sendChan.
+// If a message can not be sent due to any reason, the message is discarded.
 func (s *Session) listenSend(sendChan <-chan GatewayPayload) {
 	for {
 		payload := <-sendChan
@@ -94,13 +101,54 @@ func (s *Session) listenSend(sendChan <-chan GatewayPayload) {
 		conn := s.conn
 		s.RUnlock()
 
-		if err := conn.WriteJSON(payload); err != nil {
+		// TODO: Ensure we don't write during reconnection
+		err := conn.WriteJSON(payload)
+		if err != nil {
 			log.Println("Error sending payload", err)
 		} else {
 			log.Printf("Sent payload, OP: %d, Name: %s",
 				payload.OpCode, PayloadOpToName(payload.OpCode))
 		}
 	}
+}
+
+func (s *Session) reconnect() {
+	s.RLock()
+	s.conn.Close()
+	s.RUnlock()
+
+	var conn *websocket.Conn
+	var err error
+	var backoff time.Duration = 1 * time.Second
+	for {
+		conn, _, err = websocket.DefaultDialer.Dial(s.gatewayUrl, nil)
+		if err != nil {
+			// Try again after backoff, capped at 15 minutes
+			if backoff *= 2; backoff > 15*time.Minute {
+				backoff = 15 * time.Minute
+			}
+
+			log.Printf("Failed to reconnect, trying again in %v", backoff)
+			time.Sleep(backoff)
+		} else {
+			break
+		}
+	}
+
+	s.Lock()
+	s.conn = conn
+	s.Unlock()
+
+	go s.listenRecv()
+	log.Printf("Reconnected!")
+}
+
+// sendPayload takes a payload and sends it on the sendChan channel.
+// The method will block until the message is received by the listenSend
+// func. However, sendPayload does not in any way guarantee that any message
+// is actually sent.
+func (s *Session) sendPayload(payload GatewayPayload) {
+	s.sendChan <- payload
 }
 
 func (s *Session) heartbeat() {
