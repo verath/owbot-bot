@@ -3,8 +3,9 @@ package discord
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"errors"
+	"log"
+	"net/http"
 )
 
 const (
@@ -61,6 +62,8 @@ func (s *Session) CreateMessage(channelId string, content string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		// TODO: handle 429 - too many requests
+		log.Printf("Bad response code, expected 200 got %d", resp.StatusCode)
 		return errors.New("Non-200 response")
 	}
 
