@@ -147,13 +147,15 @@ func NewBot(botId string, token string, logger *logrus.Logger) (*Bot, error) {
 
 func main() {
 	var (
-		botId string
-		token string
+		botId   string
+		token   string
 		logFile string
+		debug   bool
 	)
 	flag.StringVar(&botId, "id", "", "The Bot ID of the bot")
 	flag.StringVar(&token, "token", "", "The secret token for the bot")
 	flag.StringVar(&logFile, "logfile", "", "A path to a file for writing logs (default is stdout)")
+	flag.BoolVar(&debug, "debug", false, "Set to true to log debug messages")
 	flag.Parse()
 
 	// TODO: This is not a great solution for required config...
@@ -165,15 +167,20 @@ func main() {
 	// Create a logrus instance (logger)
 	logger := logrus.New()
 	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_WRONLY | os.O_CREATE, 0755)
+		f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0755)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"module":   "main",
 				"filename": logFile,
 			}).Fatal(err)
 		}
-		logger.Formatter = &logrus.TextFormatter{DisableColors: true}
+		logger.Formatter = &logrus.TextFormatter{ForceColors: true}
 		logger.Out = f
+	}
+
+	// If debug is true, log also debug messages
+	if debug {
+		logger.Level = logrus.DebugLevel
 	}
 
 	bot, err := NewBot(botId, token, logger)
