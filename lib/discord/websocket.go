@@ -111,7 +111,7 @@ func (s *Session) listenSend(sendChan <-chan GatewayPayload) {
 		if err != nil {
 			logFields.WithField("error", err).Error("Error sending payload")
 		} else {
-			logFields.Info("Sent payload")
+			logFields.Debug("Sent payload")
 		}
 	}
 }
@@ -188,7 +188,7 @@ func (s *Session) handlePayload(payload RawGatewayPayload) {
 	s.logger.WithFields(logrus.Fields{
 		"op":      payload.OpCode,
 		"op-name": PayloadOpToName(payload.OpCode),
-	}).Info("Received payload")
+	}).Debug("Received payload")
 
 	switch payload.OpCode {
 	case PAYLOAD_GATEWAY_HELLO:
@@ -223,7 +223,7 @@ func (s *Session) handlePayloadDispatch(payload RawGatewayPayload) {
 	s.logger.WithFields(logrus.Fields{
 		"event": eventName,
 		"seq":   seqNumber,
-	}).Info("Got Gateway Dispatch")
+	}).Debug("Got Gateway Dispatch")
 
 	// Update the sequence number, if new number is higher
 	s.Lock()
