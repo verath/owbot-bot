@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"github.com/Sirupsen/logrus"
 	"github.com/gorilla/websocket"
 	"sync"
 	"time"
@@ -11,6 +12,8 @@ type MessageHandler func(session *Session, message *Message)
 
 type Session struct {
 	sync.RWMutex
+
+	logger *logrus.Entry
 
 	handlersLock  sync.RWMutex
 	readyHandlers []ReadyHandler
@@ -61,12 +64,14 @@ func (s *Session) onMessage(msg *Message) {
 	}
 }
 
-func NewSession(botId string, token string) Session {
-	s := Session{
+func NewSession(logger *logrus.Logger, botId string, token string) (*Session, error) {
+	// Store the logger as an Entry, adding the module to all log calls
+	discordLogger := logger.WithField("module", "discord")
+
+	return &Session{
+		logger:   discordLogger,
 		botId:    botId,
 		token:    token,
 		sendChan: make(chan GatewayPayload),
-	}
-
-	return s
+	}, nil
 }

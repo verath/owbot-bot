@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"log"
+	"github.com/Sirupsen/logrus"
 	"net/http"
 )
 
@@ -63,7 +63,10 @@ func (s *Session) CreateMessage(channelId string, content string) error {
 
 	if resp.StatusCode != 200 {
 		// TODO: handle 429 - too many requests
-		log.Printf("Bad response code, expected 200 got %d", resp.StatusCode)
+		s.logger.WithFields(logrus.Fields{
+			"status": resp.StatusCode,
+			"url":    url,
+		}).Warn("Got a non-200 response from API")
 		return errors.New("Non-200 response")
 	}
 

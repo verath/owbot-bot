@@ -2,12 +2,13 @@ package overwatch
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
 	"net/http"
 	"strings"
 	"time"
-	"errors"
 )
 
 const (
@@ -39,6 +40,7 @@ type userStatsCacheEntry struct {
 }
 
 type Overwatch struct {
+	logger         *logrus.Entry
 	userStatsCache *lru.ARCCache
 }
 
@@ -59,6 +61,10 @@ func (ow *Overwatch) GetStats(battleTag string) (*UserStats, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		ow.logger.WithFields(logrus.Fields{
+			"status": resp.StatusCode,
+			"url":    url,
+		}).Warn("Got a non-200 response from API")
 		return nil, errors.New("Non-200 response")
 	}
 
@@ -86,12 +92,17 @@ func (ow *Overwatch) getUserStatsFromCache(battleTag string) (*UserStats, bool) 
 	return nil, false
 }
 
-func NewOverwatch() (*Overwatch, error) {
+func NewOverwatch(logger *logrus.Logger) (*Overwatch, error) {
 	userStatsCache, err := lru.NewARC(USER_STATS_CACHE_SIZE)
 	if err != nil {
 		return nil, err
 	}
+
+	// Store the logger as an Entry, adding the module to all log calls
+	overwatchLogger := logger.WithField("module", "overwatch")
+
 	return &Overwatch{
+		logger:         overwatchLogger,
 		userStatsCache: userStatsCache,
 	}, nil
 }

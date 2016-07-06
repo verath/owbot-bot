@@ -3,8 +3,8 @@ package discord
 import (
 	"encoding/json"
 	"errors"
+	"github.com/Sirupsen/logrus"
 	"github.com/gorilla/websocket"
-	"log"
 	"strconv"
 	"time"
 )
@@ -76,7 +76,7 @@ func (s *Session) listenRecv() {
 		// listenRecv loop and start trying to reconnect
 		_, r, err := conn.NextReader()
 		if err != nil {
-			log.Println("Error reading from socket, reconnecting...")
+			s.logger.WithField("error", err).Error("Error reading from socket")
 			s.reconnect()
 			break
 		}
@@ -84,7 +84,7 @@ func (s *Session) listenRecv() {
 		// Parse the message as json and dispatch
 		payload := RawGatewayPayload{}
 		if err = json.NewDecoder(r).Decode(&payload); err != nil {
-			log.Println("Error decoding payload", err)
+			s.logger.Error("Error decoding received payload", err)
 			continue
 		}
 		go s.handlePayload(payload)
@@ -103,11 +103,15 @@ func (s *Session) listenSend(sendChan <-chan GatewayPayload) {
 
 		// TODO: Ensure we don't write during reconnection
 		err := conn.WriteJSON(payload)
+
+		logFields := s.logger.WithFields(logrus.Fields{
+			"op":      payload.OpCode,
+			"op-name": PayloadOpToName(payload.OpCode),
+		})
 		if err != nil {
-			log.Println("Error sending payload", err)
+			logFields.WithField("error", err).Error("Error sending payload")
 		} else {
-			log.Printf("Sent payload, OP: %d, Name: %s",
-				payload.OpCode, PayloadOpToName(payload.OpCode))
+			logFields.Info("Sent payload")
 		}
 	}
 }
@@ -128,7 +132,7 @@ func (s *Session) reconnect() {
 				backoff = 15 * time.Minute
 			}
 
-			log.Printf("Failed to reconnect, trying again in %v", backoff)
+			s.logger.WithField("backoff", backoff).Warn("Failed to reconnect, trying again")
 			time.Sleep(backoff)
 		} else {
 			break
@@ -140,7 +144,7 @@ func (s *Session) reconnect() {
 	s.Unlock()
 
 	go s.listenRecv()
-	log.Printf("Reconnected!")
+	s.logger.Info("Reconnected!")
 }
 
 // sendPayload takes a payload and sends it on the sendChan channel.
@@ -171,7 +175,8 @@ func (s *Session) heartbeat() {
 			}
 			ticker = time.NewTicker(newInterval * time.Millisecond)
 			interval = newInterval
-			log.Printf("Heartbeat interval set to: %d ms", interval)
+
+			s.logger.WithField("interval", interval).Info("Heartbeat interval updated")
 		}
 		<-ticker.C
 	}
@@ -180,7 +185,10 @@ func (s *Session) heartbeat() {
 // "Entry point" for handling incoming payloads. Dispatches known payloads
 // to their appropriate handler
 func (s *Session) handlePayload(payload RawGatewayPayload) {
-	log.Printf("Recv payload, OP: %d, Name: %s", payload.OpCode, PayloadOpToName(payload.OpCode))
+	s.logger.WithFields(logrus.Fields{
+		"op":      payload.OpCode,
+		"op-name": PayloadOpToName(payload.OpCode),
+	}).Info("Received payload")
 
 	switch payload.OpCode {
 	case PAYLOAD_GATEWAY_HELLO:
@@ -194,10 +202,10 @@ func (s *Session) handlePayload(payload RawGatewayPayload) {
 func (s *Session) handlePayloadHello(payload RawGatewayPayload) {
 	helloData := GatewayHelloData{}
 	if err := json.Unmarshal(payload.Data, &helloData); err != nil {
-		log.Fatal(err)
+		s.logger.WithField("error", err).Error("Failed unmarshaling GatewayHello")
 	}
 
-	log.Printf("Got Gateway Hello, HeartbeatInterval: %d ms", helloData.HeartbeatInterval)
+	s.logger.WithField("HeartbeatInterval", helloData.HeartbeatInterval).Info("Got Gateway Hello")
 
 	s.Lock()
 	s.heartbeatInterval = helloData.HeartbeatInterval
@@ -212,7 +220,10 @@ func (s *Session) handlePayloadDispatch(payload RawGatewayPayload) {
 	eventName := *payload.EventName
 	seqNumber := *payload.SeqNumber
 
-	log.Printf("Got Gateway Dispatch, EventName: %s, SeqNum: %d", eventName, seqNumber)
+	s.logger.WithFields(logrus.Fields{
+		"event": eventName,
+		"seq":   seqNumber,
+	}).Info("Got Gateway Dispatch")
 
 	// Update the sequence number, if new number is higher
 	s.Lock()
@@ -241,11 +252,11 @@ func (s *Session) handleEventReady(data json.RawMessage) {
 	// are likely due to us reconnecting. For now, reconnection
 	// is left hidden as an implementation detail.
 	if !wasReady {
-		log.Println("Got EventReady, starting heartbeat")
+		s.logger.Info("Got EventReady, starting heartbeat")
 		go s.heartbeat()
 		s.onReady()
 	} else {
-		log.Println("Got EventReady, but was already ready")
+		s.logger.Info("Got EventReady, but was already ready")
 	}
 }
 
@@ -255,7 +266,8 @@ func (s *Session) handleEventMessageCreate(data json.RawMessage) {
 	messageCreate := EventMessageCreate{}
 	err := json.Unmarshal(data, &messageCreate)
 	if err != nil {
-		log.Fatal(err)
+		s.logger.WithField("error", err).Error("Failed unmarshaling EventMessageCreate")
+		return
 	}
 
 	s.onMessage(messageCreate.Message)
