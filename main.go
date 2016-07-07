@@ -34,7 +34,7 @@ type Bot struct {
 }
 
 func (b *Bot) onSessionReady(s *discord.Session) {
-	b.logger.Info("onSessionReady got Overwatch stats")
+	b.logger.Info("onSessionReady, setting status message")
 	s.UpdateStatus(-1, "!ow help")
 }
 
