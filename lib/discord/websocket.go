@@ -18,13 +18,9 @@ type ReadyHandler func()
 type MessageHandler func(message *Message)
 
 type WebSocketClient struct {
-	sync.RWMutex
-
 	logger *logrus.Entry
 
-	handlersLock  sync.RWMutex
-	readyHandlers []ReadyHandler
-	msgHandlers   []MessageHandler
+	mu sync.RWMutex
 
 	botId      string // The botId of the account
 	token      string // The secret token of the account
@@ -36,6 +32,10 @@ type WebSocketClient struct {
 	isReady           bool          // A flag used to know if the ready event has been received
 	heartbeatInterval time.Duration // The heartbeat interval to use for heartbeats
 	seqNum            *int          // The latest sequence number received, used in heartbeats
+
+	handlersLock  sync.RWMutex
+	readyHandlers []ReadyHandler
+	msgHandlers   []MessageHandler
 }
 
 func NewWebSocketClient(logger *logrus.Logger, botId string, token string, gatewayUrl string) (*WebSocketClient, error) {
@@ -69,8 +69,8 @@ func (sc *WebSocketClient) AddMessageHandler(handler MessageHandler) {
 // Connects to the Discord websocket server, starting
 // to listen for events.
 func (sc *WebSocketClient) Connect() error {
-	sc.Lock()
-	defer sc.Unlock()
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
 
 	if sc.conn != nil {
 		return errors.New("Already connected")
@@ -92,8 +92,8 @@ func (sc *WebSocketClient) Connect() error {
 // If gameName != "", the value is set as the currently playing game for the user
 // https://discordapp.com/developers/docs/topics/gateway#gateway-status-update
 func (sc *WebSocketClient) UpdateStatus(idleSince int, gameName string) error {
-	sc.Lock()
-	defer sc.Unlock()
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
 
 	data := GatewayStatusUpdateData{}
 	if idleSince >= 0 {
@@ -111,9 +111,9 @@ func (sc *WebSocketClient) UpdateStatus(idleSince int, gameName string) error {
 // listenRecv listens for data from Discord, and dispatches it on a new go-routine.
 // listenRecv stops itself, and calls reconnect, when failing to read from the socket.
 func (sc *WebSocketClient) listenRecv() {
-	sc.RLock()
+	sc.mu.RLock()
 	conn := sc.conn
-	sc.RUnlock()
+	sc.mu.RUnlock()
 	for {
 		// Read raw message from websocket conn. On error, stop the current
 		// listenRecv loop and start trying to reconnect
@@ -140,9 +140,9 @@ func (sc *WebSocketClient) listenSend(sendChan <-chan GatewayPayload) {
 	for {
 		payload := <-sendChan
 
-		sc.RLock()
+		sc.mu.RLock()
 		conn := sc.conn
-		sc.RUnlock()
+		sc.mu.RUnlock()
 
 		// TODO: Ensure we don't write during reconnection
 		err := conn.WriteJSON(payload)
@@ -160,9 +160,9 @@ func (sc *WebSocketClient) listenSend(sendChan <-chan GatewayPayload) {
 }
 
 func (sc *WebSocketClient) reconnect() {
-	sc.RLock()
+	sc.mu.RLock()
 	sc.conn.Close()
-	sc.RUnlock()
+	sc.mu.RUnlock()
 
 	var conn *websocket.Conn
 	var err error
@@ -182,9 +182,9 @@ func (sc *WebSocketClient) reconnect() {
 		}
 	}
 
-	sc.Lock()
+	sc.mu.Lock()
 	sc.conn = conn
-	sc.Unlock()
+	sc.mu.Unlock()
 
 	go sc.listenRecv()
 	sc.logger.Info("Reconnected!")
@@ -203,10 +203,10 @@ func (sc *WebSocketClient) heartbeat() {
 	var ticker *time.Ticker
 
 	for {
-		sc.RLock()
+		sc.mu.RLock()
 		seqNum := sc.seqNum
 		newInterval := sc.heartbeatInterval
-		sc.RUnlock()
+		sc.mu.RUnlock()
 
 		payload := GatewayPayload{PAYLOAD_GATEWAY_HEARTBEAT, seqNum, nil, nil}
 		sc.sendPayload(payload)
@@ -252,18 +252,18 @@ func (sc *WebSocketClient) handlePayloadHello(payload RawGatewayPayload) {
 
 	sc.logger.WithField("HeartbeatInterval", heartbeatInterval).Info("Got Gateway Hello")
 
-	sc.Lock()
+	sc.mu.Lock()
 	sc.heartbeatInterval = heartbeatInterval
-	sc.Unlock()
+	sc.mu.Unlock()
 
 	sc.sendIdentify()
 }
 
 // Sends our identify payload to the server
 func (sc *WebSocketClient) sendIdentify() {
-	sc.RLock()
+	sc.mu.RLock()
 	token := sc.token
-	sc.RUnlock()
+	sc.mu.RUnlock()
 
 	data := GatewayIdentifyData{
 		Token:      token,
@@ -286,11 +286,11 @@ func (sc *WebSocketClient) handlePayloadDispatch(payload RawGatewayPayload) {
 	}).Debug("Got Gateway Dispatch")
 
 	// Update the sequence number, if new number is higher
-	sc.Lock()
+	sc.mu.Lock()
 	if sc.seqNum == nil || *sc.seqNum < seqNumber {
 		sc.seqNum = &seqNumber
 	}
-	sc.Unlock()
+	sc.mu.Unlock()
 
 	switch eventName {
 	case "READY":
@@ -303,10 +303,10 @@ func (sc *WebSocketClient) handlePayloadDispatch(payload RawGatewayPayload) {
 // Handler for the EventReady event
 // Starts the heartbeat and notifies listeners on the initial EventReady
 func (sc *WebSocketClient) handleEventReady(data json.RawMessage) {
-	sc.Lock()
+	sc.mu.Lock()
 	wasReady := sc.isReady
 	sc.isReady = true
-	sc.Unlock()
+	sc.mu.Unlock()
 
 	// Only act on the first EventReady, as following such events
 	// are likely due to us reconnecting. For now, reconnection
