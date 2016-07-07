@@ -98,7 +98,9 @@ func (bot *Bot) onChannelMessage(msg *discord.Message) {
 		err := bot.discord.CreateMessage(msg.ChannelId, respMsg)
 
 		respLogEntry := bot.logger.WithFields(logrus.Fields{
-			"author":   msg.Author.Id,
+			"authorId":   msg.Author.Id,
+			"authorUsername": msg.Author.Username,
+			"authorDiscriminator": msg.Author.Discriminator,
 			"response": respMsg,
 		})
 		if err != nil {
