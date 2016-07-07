@@ -29,25 +29,26 @@ var BATTLE_TAG_REGEX = regexp.MustCompile(`^(?P<BattleTag>\w{3,12}#\d+)$`)
 type Bot struct {
 	logger               *logrus.Entry
 	overwatch            *overwatch.Overwatch
-	session              *discord.Session
+	discord              *discord.DiscordClient
 	discordIdToBattleTag map[string]string
 }
 
-func (b *Bot) onSessionReady(s *discord.Session) {
-	b.logger.Info("onSessionReady, setting status message")
-	s.UpdateStatus(-1, "!ow help")
+func (bot *Bot) onSessionReady() {
+	bot.logger.Info("onSessionReady, setting status message")
+	bot.discord.UpdateStatus(-1, "!ow help")
 }
 
-func (b *Bot) fetchOverwatchProfile(battleTag string) string {
-	stats, err := b.overwatch.GetStats(battleTag)
+func (bot *Bot) fetchOverwatchProfile(battleTag string) string {
+	stats, err := bot.overwatch.GetStats(battleTag)
+	logrus.New()
 	if err != nil {
-		b.logger.WithFields(logrus.Fields{
+		bot.logger.WithFields(logrus.Fields{
 			"error":     err,
 			"battleTag": battleTag,
 		}).Warn("Could not get Overwatch stats")
 		return fmt.Sprintf(MSG_ERROR_FETCHING_PROFILE_FORMAT, battleTag)
 	} else {
-		b.logger.WithField("battleTag", battleTag).Info("Successfully got Overwatch stats")
+		bot.logger.WithField("battleTag", battleTag).Info("Successfully got Overwatch stats")
 		return fmt.Sprintf(MSG_OVERWATCH_PROFILE_FORMAT,
 			battleTag,
 			stats.OverallStats.Level,
@@ -56,7 +57,7 @@ func (b *Bot) fetchOverwatchProfile(battleTag string) string {
 
 }
 
-func (b *Bot) onChannelMessage(s *discord.Session, msg *discord.Message) {
+func (bot *Bot) onChannelMessage(msg *discord.Message) {
 	if !strings.HasPrefix(msg.Content, "!ow") {
 		return
 	}
@@ -66,8 +67,8 @@ func (b *Bot) onChannelMessage(s *discord.Session, msg *discord.Message) {
 	mention := false
 
 	if len(args) == 1 {
-		if battleTag, ok := b.discordIdToBattleTag[msg.Author.Id]; ok {
-			respMsg = b.fetchOverwatchProfile(battleTag)
+		if battleTag, ok := bot.discordIdToBattleTag[msg.Author.Id]; ok {
+			respMsg = bot.fetchOverwatchProfile(battleTag)
 		} else {
 			mention = true
 			respMsg = MSG_HELP_SET_BATTLE_TAG
@@ -76,11 +77,11 @@ func (b *Bot) onChannelMessage(s *discord.Session, msg *discord.Message) {
 		respMsg = HELP_MSG_USAGE
 	} else if BATTLE_TAG_REGEX.MatchString(args[1]) {
 		battleTag := args[1]
-		respMsg = b.fetchOverwatchProfile(battleTag)
+		respMsg = bot.fetchOverwatchProfile(battleTag)
 	} else if args[1] == "set" && len(args) >= 3 {
 		battleTag := args[2]
 		if BATTLE_TAG_REGEX.MatchString(battleTag) {
-			b.discordIdToBattleTag[msg.Author.Id] = battleTag
+			bot.discordIdToBattleTag[msg.Author.Id] = battleTag
 		} else {
 			mention = true
 			respMsg = fmt.Sprintf(MSG_HELP_INVALID_BATTLE_TAG_FORMAT, battleTag)
@@ -94,9 +95,9 @@ func (b *Bot) onChannelMessage(s *discord.Session, msg *discord.Message) {
 		if mention {
 			respMsg = fmt.Sprintf("<@%s>: %s", msg.Author.Id, respMsg)
 		}
-		err := s.CreateMessage(msg.ChannelId, respMsg)
+		err := bot.discord.CreateMessage(msg.ChannelId, respMsg)
 
-		respLogEntry := b.logger.WithFields(logrus.Fields{
+		respLogEntry := bot.logger.WithFields(logrus.Fields{
 			"author":   msg.Author.Id,
 			"response": respMsg,
 		})
@@ -108,20 +109,25 @@ func (b *Bot) onChannelMessage(s *discord.Session, msg *discord.Message) {
 	}
 }
 
-func (b *Bot) Run() error {
+func (bot *Bot) Run() error {
+	bot.logger.Debug("Bot starting, connecting...")
 
-	b.session.AddReadyHandler(b.onSessionReady)
-	b.session.AddMessageHandler(b.onChannelMessage)
+	bot.discord.AddReadyHandler(bot.onSessionReady)
+	bot.discord.AddMessageHandler(bot.onChannelMessage)
 
-	err := b.session.Connect()
+	err := bot.discord.Connect()
 	if err != nil {
 		return err
 	}
+
+	bot.logger.Debug("Connected to discord")
 
 	// Run until asked to quit
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, os.Kill)
 	<-c
+
+	bot.logger.Info("Interrupted, shutting down...")
 
 	return nil
 }
@@ -132,14 +138,14 @@ func NewBot(botId string, token string, logger *logrus.Logger) (*Bot, error) {
 		return nil, err
 	}
 
-	session, err := discord.NewSession(logger, botId, token)
+	discord, err := discord.NewDiscord(logger, botId, token)
 
 	// Store the logger as an Entry, adding the module to all log calls
 	botLogger := logger.WithField("module", "main")
 
 	return &Bot{
 		logger:               botLogger,
-		session:              session,
+		discord:              discord,
 		overwatch:            overwatch,
 		discordIdToBattleTag: make(map[string]string),
 	}, nil

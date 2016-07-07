@@ -1,5 +1,9 @@
 package discord
 
+type Gateway struct {
+	Url string `json:"url"`
+}
+
 type User struct {
 	Id            string `json:"id"`
 	Username      string `json:"username"`

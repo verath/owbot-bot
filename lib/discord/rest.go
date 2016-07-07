@@ -12,11 +12,21 @@ const (
 	API_BASE_URL = "https://discordapp.com/api"
 )
 
-type Gateway struct {
-	Url string `json:"url"`
+type RestClient struct {
+	logger *logrus.Entry
+	token  string
 }
 
-func (s *Session) GetGateway() (*Gateway, error) {
+func NewRestClient(logger *logrus.Logger, token string) (*RestClient, error) {
+	restLogger := logger.WithField("module", "discord-rest")
+
+	return &RestClient{
+		token:  token,
+		logger: restLogger,
+	}, nil
+}
+
+func (rc *RestClient) GetGateway() (*Gateway, error) {
 	resp, err := http.Get(API_BASE_URL + "/gateway")
 	if err != nil {
 		return nil, err
@@ -32,7 +42,7 @@ func (s *Session) GetGateway() (*Gateway, error) {
 }
 
 // https://discordapp.com/developers/docs/resources/channel#create-message
-func (s *Session) CreateMessage(channelId string, content string) error {
+func (rc *RestClient) CreateMessage(channelId string, content string) error {
 	url := API_BASE_URL + "/channels/" + channelId + "/messages"
 	params := struct {
 		Content string `json:"content"`
@@ -47,11 +57,7 @@ func (s *Session) CreateMessage(channelId string, content string) error {
 		return err
 	}
 
-	s.RLock()
-	token := s.token
-	s.RUnlock()
-
-	req.Header.Set("authorization", token)
+	req.Header.Set("authorization", rc.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -63,7 +69,7 @@ func (s *Session) CreateMessage(channelId string, content string) error {
 
 	if resp.StatusCode != 200 {
 		// TODO: handle 429 - too many requests
-		s.logger.WithFields(logrus.Fields{
+		rc.logger.WithFields(logrus.Fields{
 			"status": resp.StatusCode,
 			"url":    url,
 		}).Warn("Got a non-200 response from API")
