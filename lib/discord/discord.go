@@ -5,10 +5,10 @@ import (
 )
 
 type DiscordClient struct {
-	logger *logrus.Entry
+	*RestClient
+	*WebSocketClient
 
-	RestClient      *RestClient
-	WebSocketClient *WebSocketClient
+	logger *logrus.Entry
 }
 
 func NewDiscord(logger *logrus.Logger, botId string, token string) (*DiscordClient, error) {
@@ -37,28 +37,4 @@ func NewDiscord(logger *logrus.Logger, botId string, token string) (*DiscordClie
 		RestClient:      rest,
 		WebSocketClient: ws,
 	}, nil
-}
-
-func (discord *DiscordClient) AddReadyHandler(readyHandler ReadyHandler) {
-	discord.WebSocketClient.AddReadyHandler(readyHandler)
-}
-
-func (discord *DiscordClient) AddMessageHandler(messageHandler MessageHandler) {
-	discord.WebSocketClient.AddMessageHandler(messageHandler)
-}
-
-func (discord *DiscordClient) Connect() error {
-	return discord.WebSocketClient.Connect()
-}
-
-func (discord *DiscordClient) UpdateStatus(idleSince int, gameName string) error {
-	return discord.WebSocketClient.UpdateStatus(idleSince, gameName)
-}
-
-func (discord *DiscordClient) CreateMessage(channelId string, content string) error {
-	return discord.RestClient.CreateMessage(channelId, content)
-}
-
-func (discord *DiscordClient) GetGateway() (*Gateway, error) {
-	return discord.RestClient.GetGateway()
 }
