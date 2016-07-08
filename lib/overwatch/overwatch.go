@@ -39,12 +39,12 @@ type userStatsCacheEntry struct {
 	addedAt time.Time
 }
 
-type Overwatch struct {
+type OverwatchClient struct {
 	logger         *logrus.Entry
 	userStatsCache *lru.ARCCache
 }
 
-func (ow *Overwatch) GetStats(battleTag string) (*UserStats, error) {
+func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 	// Url friendly battleTag
 	battleTag = strings.Replace(battleTag, "#", "-", -1)
 
@@ -82,7 +82,7 @@ func (ow *Overwatch) GetStats(battleTag string) (*UserStats, error) {
 }
 
 // Returns a cached UserStats entry, if one exist and the data is not considered stale
-func (ow *Overwatch) getUserStatsFromCache(battleTag string) (*UserStats, bool) {
+func (ow *OverwatchClient) getUserStatsFromCache(battleTag string) (*UserStats, bool) {
 	if cacheEntry, ok := ow.userStatsCache.Get(battleTag); ok {
 		userStatsCacheEntry := cacheEntry.(userStatsCacheEntry)
 		if time.Since(userStatsCacheEntry.addedAt) <= USER_STATS_CACHE_DURATION {
@@ -92,7 +92,7 @@ func (ow *Overwatch) getUserStatsFromCache(battleTag string) (*UserStats, bool) 
 	return nil, false
 }
 
-func NewOverwatch(logger *logrus.Logger) (*Overwatch, error) {
+func NewOverwatch(logger *logrus.Logger) (*OverwatchClient, error) {
 	userStatsCache, err := lru.NewARC(USER_STATS_CACHE_SIZE)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func NewOverwatch(logger *logrus.Logger) (*Overwatch, error) {
 	// Store the logger as an Entry, adding the module to all log calls
 	overwatchLogger := logger.WithField("module", "overwatch")
 
-	return &Overwatch{
+	return &OverwatchClient{
 		logger:         overwatchLogger,
 		userStatsCache: userStatsCache,
 	}, nil
