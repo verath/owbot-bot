@@ -18,22 +18,25 @@ type ReadyHandler func()
 type MessageHandler func(message *Message)
 
 type WebSocketClient struct {
+	mu     sync.RWMutex
 	logger *logrus.Entry
 
-	mu sync.RWMutex
+	// A WaitGroup used when Disconnecting to block until all
+	// running goroutines have finished
+	waitGroup *sync.WaitGroup
 
 	botId      string // The botId of the account
 	token      string // The secret token of the account
-	gatewayUrl string // A cached value of the Discord wss url.
+	gatewayUrl string // A cached value of the Discord wss url
 
-	sendChan chan GatewayPayload // A channel used for queuing payloads to send
-	conn     *websocket.Conn     // The websocket connection to Discord
+	conn  *websocket.Conn  // The websocket connection to Discord
+	close chan interface{} // A channel used to signal that the connection should be closed
+	ready chan interface{} // A channel used to signal when the ready event is received
 
-	isReady           bool          // A flag used to know if the ready event has been received
-	heartbeatInterval time.Duration // The heartbeat interval to use for heartbeats
 	seqNum            *int          // The latest sequence number received, used in heartbeats
+	heartbeatInterval time.Duration // The interval in which heartbeats should be sent
 
-	handlersLock  sync.RWMutex
+	handlersMu    sync.RWMutex
 	readyHandlers []ReadyHandler
 	msgHandlers   []MessageHandler
 }
@@ -47,31 +50,22 @@ func NewWebSocketClient(logger *logrus.Logger, botId string, token string, gatew
 
 	return &WebSocketClient{
 		logger:     discordLogger,
+		waitGroup:  &sync.WaitGroup{},
 		botId:      botId,
 		token:      token,
 		gatewayUrl: gatewayUrl,
-		sendChan:   make(chan GatewayPayload),
 	}, nil
 }
 
-func (sc *WebSocketClient) AddReadyHandler(handler ReadyHandler) {
-	sc.handlersLock.Lock()
-	sc.readyHandlers = append(sc.readyHandlers, handler)
-	sc.handlersLock.Unlock()
-}
-
-func (sc *WebSocketClient) AddMessageHandler(handler MessageHandler) {
-	sc.handlersLock.Lock()
-	sc.msgHandlers = append(sc.msgHandlers, handler)
-	sc.handlersLock.Unlock()
-}
-
-// Connects to the Discord websocket server, starting
+// Connects to the Discord websocket server, starts
 // to listen for events.
 func (sc *WebSocketClient) Connect() error {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+	return sc.connect()
+}
 
+func (sc *WebSocketClient) connect() error {
 	if sc.conn != nil {
 		return errors.New("Already connected")
 	}
@@ -82,9 +76,39 @@ func (sc *WebSocketClient) Connect() error {
 	}
 	sc.conn = conn
 
-	go sc.listenRecv()
-	go sc.listenSend(sc.sendChan)
+	// Create channels for close and ready signals
+	sc.close = make(chan interface{})
+	sc.ready = make(chan interface{})
+
+	sc.waitGroup.Add(2)
+	go sc.listen(sc.conn, sc.close)
+	go sc.heartbeat(sc.conn, sc.close, sc.ready)
 	return nil
+}
+
+// Disconnects from the Discord websocket server, stops
+// listening for events
+func (sc *WebSocketClient) Disconnect() error {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.disconnect()
+}
+
+func (sc *WebSocketClient) disconnect() error {
+	if sc.conn == nil {
+		return errors.New("Not connected")
+	}
+
+	// Signaling our goroutines to stop. We also "force close"
+	// the conn here, to interrupt the listen goroutine
+	close(sc.close)
+	sc.close = nil
+	err := sc.conn.Close()
+	sc.conn = nil
+
+	// Wait until all the goroutines are closed before returning
+	sc.waitGroup.Wait()
+	return err
 }
 
 // Updates the current user's status.
@@ -92,9 +116,6 @@ func (sc *WebSocketClient) Connect() error {
 // If gameName != "", the value is set as the currently playing game for the user
 // https://discordapp.com/developers/docs/topics/gateway#gateway-status-update
 func (sc *WebSocketClient) UpdateStatus(idleSince int, gameName string) error {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-
 	data := GatewayStatusUpdateData{}
 	if idleSince >= 0 {
 		data.IdleSince = &idleSince
@@ -103,126 +124,130 @@ func (sc *WebSocketClient) UpdateStatus(idleSince int, gameName string) error {
 		data.Game = &StatusUpdateGame{gameName}
 	}
 	payload := NewGatewayPayload(PAYLOAD_GATEWAY_STATUS_UPDATE, data, nil, nil)
-	sc.sendPayload(payload)
 
+	sc.sendPayload(payload)
 	return nil
 }
 
-// listenRecv listens for data from Discord, and dispatches it on a new go-routine.
-// listenRecv stops itself, and calls reconnect, when failing to read from the socket.
-func (sc *WebSocketClient) listenRecv() {
-	sc.mu.RLock()
-	conn := sc.conn
-	sc.mu.RUnlock()
+func (sc *WebSocketClient) listen(conn *websocket.Conn, close <-chan interface{}) {
+	defer sc.waitGroup.Done()
+
 	for {
-		// Read raw message from websocket conn. On error, stop the current
-		// listenRecv loop and start trying to reconnect
-		_, r, err := conn.NextReader()
-		if err != nil {
-			sc.logger.WithField("error", err).Error("Error reading from socket")
-			sc.reconnect()
-			break
+		select {
+		case <-close:
+			sc.logger.Info("Close signal in listen, stopping")
+			return
+		default:
 		}
 
-		// Parse the message as json and dispatch
+		// Read raw message from websocket. This is used over e.g. ReadJson
+		// so that know that any error was from reading from the socket
+		_, r, err := conn.NextReader()
+		if err != nil {
+			// On error, stop listening and try reconnect. Reconnect is run
+			// on a new goroutine so that the current one can quit
+			sc.logger.WithField("error", err).Error("Error reading from socket")
+			go sc.reconnect(conn)
+			return
+		}
+
 		payload := RawGatewayPayload{}
-		if err = json.NewDecoder(r).Decode(&payload); err != nil {
-			sc.logger.Error("Error decoding received payload", err)
-			continue
+		if err := json.NewDecoder(r).Decode(&payload); err != nil {
+			sc.logger.WithField("error", err).Error("Error decoding received payload")
+			return
 		}
 		go sc.handlePayload(payload)
 	}
 }
 
-// Send listens for data to be sent to Discord, sent on the s.sendChan.
-// If a message can not be sent due to any reason, the message is discarded.
-func (sc *WebSocketClient) listenSend(sendChan <-chan GatewayPayload) {
-	for {
-		payload := <-sendChan
+func (sc *WebSocketClient) heartbeat(conn *websocket.Conn, close <-chan interface{}, ready <-chan interface{}) {
+	defer sc.waitGroup.Done()
 
-		sc.mu.RLock()
-		conn := sc.conn
-		sc.mu.RUnlock()
-
-		// TODO: Ensure we don't write during reconnection
-		err := conn.WriteJSON(payload)
-
-		logFields := sc.logger.WithFields(logrus.Fields{
-			"op":      payload.OpCode,
-			"op-name": PayloadOpToName(payload.OpCode),
-		})
-		if err != nil {
-			logFields.WithField("error", err).Error("Error sending payload")
-		} else {
-			logFields.Debug("Sent payload")
-		}
+	select {
+	case <-ready:
+	case <-close:
+		sc.logger.Info("Close signal in heartbeat while awaiting ready, stopping")
+		return
 	}
-}
 
-func (sc *WebSocketClient) reconnect() {
 	sc.mu.RLock()
-	sc.conn.Close()
+	ticker := time.NewTicker(sc.heartbeatInterval)
 	sc.mu.RUnlock()
-
-	var conn *websocket.Conn
-	var err error
-	var backoff time.Duration = 1 * time.Second
-	for {
-		conn, _, err = websocket.DefaultDialer.Dial(sc.gatewayUrl, nil)
-		if err != nil {
-			// Try again after backoff, capped at 15 minutes
-			if backoff *= 2; backoff > 15*time.Minute {
-				backoff = 15 * time.Minute
-			}
-
-			sc.logger.WithField("backoff", backoff).Warn("Failed to reconnect, trying again")
-			time.Sleep(backoff)
-		} else {
-			break
-		}
-	}
-
-	sc.mu.Lock()
-	sc.conn = conn
-	sc.mu.Unlock()
-
-	go sc.listenRecv()
-	sc.logger.Info("Reconnected!")
-}
-
-// sendPayload takes a payload and sends it on the sendChan channel.
-// The method will block until the message is received by the listenSend
-// func. However, sendPayload does not in any way guarantee that any message
-// is actually sent.
-func (sc *WebSocketClient) sendPayload(payload GatewayPayload) {
-	sc.sendChan <- payload
-}
-
-func (sc *WebSocketClient) heartbeat() {
-	var interval time.Duration
-	var ticker *time.Ticker
-
 	for {
 		sc.mu.RLock()
 		seqNum := sc.seqNum
-		newInterval := sc.heartbeatInterval
 		sc.mu.RUnlock()
 
 		payload := GatewayPayload{PAYLOAD_GATEWAY_HEARTBEAT, seqNum, nil, nil}
-		sc.sendPayload(payload)
 
-		// Adjust ticker if heartbeatInterval changed
-		if interval != newInterval {
-			if ticker != nil {
-				ticker.Stop()
-			}
-			ticker = time.NewTicker(newInterval)
-			interval = newInterval
+		go sc.sendPayload(payload)
 
-			sc.logger.WithField("interval", interval).Info("Heartbeat interval updated")
+		select {
+		case <-close:
+			sc.logger.Info("Close signal in heartbeat, stopping")
+			return
+		case <-ticker.C:
 		}
-		<-ticker.C
+
 	}
+}
+
+func (sc *WebSocketClient) sendPayload(payload GatewayPayload) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// TODO: how to handle errors when sending?
+	logFields := sc.logger.WithFields(logrus.Fields{
+		"op":      payload.OpCode,
+		"op-name": PayloadOpToName(payload.OpCode),
+	})
+
+	if sc.conn == nil {
+		err := errors.New("No connection")
+		logFields.WithField("error", err).Error("Error sending payload")
+		return
+	}
+	if err := sc.conn.WriteJSON(payload); err != nil {
+		logFields.WithField("error", err).Error("Error sending payload")
+		return
+	}
+	logFields.Debug("Sent payload")
+}
+
+func (sc *WebSocketClient) reconnect(conn *websocket.Conn) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// Make sure the connection we had when trying to reconnect is still
+	// the current connection. If it is not, it means a connect/disconnect
+	// was already performed, and we should not continue with the reconnection
+	if sc.conn != conn {
+		sc.logger.Info("Connection changed in reconnect, aborting")
+		return
+	}
+
+	err := sc.disconnect()
+	if err != nil {
+		sc.logger.WithField("error", err).Error("Failed to disconnect")
+	}
+
+	backoff := 1 * time.Second
+	for {
+		err := sc.connect()
+		if err == nil {
+			break
+		}
+		// Try again with backoff, capped at 15 minutes
+		if backoff *= 2; backoff > 15*time.Minute {
+			backoff = 15 * time.Minute
+		}
+		sc.logger.WithFields(logrus.Fields{
+			"backoff": backoff,
+			"error":   err,
+		}).Warn("Failed to reconnect")
+		time.Sleep(backoff)
+	}
+	sc.logger.Info("Reconnected")
 }
 
 // "Entry point" for handling incoming payloads. Dispatches known payloads
@@ -249,7 +274,6 @@ func (sc *WebSocketClient) handlePayloadHello(payload RawGatewayPayload) {
 	}
 
 	heartbeatInterval := helloData.HeartbeatInterval * time.Millisecond
-
 	sc.logger.WithField("HeartbeatInterval", heartbeatInterval).Info("Got Gateway Hello")
 
 	sc.mu.Lock()
@@ -301,23 +325,14 @@ func (sc *WebSocketClient) handlePayloadDispatch(payload RawGatewayPayload) {
 }
 
 // Handler for the EventReady event
-// Starts the heartbeat and notifies listeners on the initial EventReady
 func (sc *WebSocketClient) handleEventReady(data json.RawMessage) {
-	sc.mu.Lock()
-	wasReady := sc.isReady
-	sc.isReady = true
-	sc.mu.Unlock()
+	// Close the ready channel, signaling to the heartbeat goroutine to start
+	sc.mu.RLock()
+	close(sc.ready)
+	sc.mu.RUnlock()
 
-	// Only act on the first EventReady, as following such events
-	// are likely due to us reconnecting. For now, reconnection
-	// is left hidden as an implementation detail.
-	if !wasReady {
-		sc.logger.Info("Got EventReady, starting heartbeat")
-		go sc.heartbeat()
-		sc.onReady()
-	} else {
-		sc.logger.Info("Got EventReady, but was already ready")
-	}
+	// Dispatch the onReady event to external listeners
+	sc.onReady()
 }
 
 // Handler for the MessageCreateEvent, the event sent when someone sends
@@ -333,9 +348,25 @@ func (sc *WebSocketClient) handleEventMessageCreate(data json.RawMessage) {
 	sc.onMessage(messageCreate.Message)
 }
 
+//
+// External event handler registration and dispatching
+//
+
+func (sc *WebSocketClient) AddReadyHandler(handler ReadyHandler) {
+	sc.handlersMu.Lock()
+	sc.readyHandlers = append(sc.readyHandlers, handler)
+	sc.handlersMu.Unlock()
+}
+
+func (sc *WebSocketClient) AddMessageHandler(handler MessageHandler) {
+	sc.handlersMu.Lock()
+	sc.msgHandlers = append(sc.msgHandlers, handler)
+	sc.handlersMu.Unlock()
+}
+
 func (sc *WebSocketClient) onReady() {
-	sc.handlersLock.RLock()
-	defer sc.handlersLock.RUnlock()
+	sc.handlersMu.RLock()
+	defer sc.handlersMu.RUnlock()
 	for _, handler := range sc.readyHandlers {
 		go handler()
 	}
@@ -346,9 +377,8 @@ func (sc *WebSocketClient) onMessage(msg *Message) {
 		// Don't notify on our own messages
 		return
 	}
-
-	sc.handlersLock.RLock()
-	defer sc.handlersLock.RUnlock()
+	sc.handlersMu.RLock()
+	defer sc.handlersMu.RUnlock()
 	for _, handler := range sc.msgHandlers {
 		go handler(msg)
 	}

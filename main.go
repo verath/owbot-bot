@@ -28,7 +28,7 @@ var BATTLE_TAG_REGEX = regexp.MustCompile(`^(?P<BattleTag>\w{3,12}#\d+)$`)
 
 type Bot struct {
 	logger               *logrus.Entry
-	overwatch            *overwatch.Overwatch
+	overwatch            *overwatch.OverwatchClient
 	discord              *discord.DiscordClient
 	discordIdToBattleTag map[string]string
 }
@@ -98,10 +98,10 @@ func (bot *Bot) onChannelMessage(msg *discord.Message) {
 		err := bot.discord.CreateMessage(msg.ChannelId, respMsg)
 
 		respLogEntry := bot.logger.WithFields(logrus.Fields{
-			"authorId":   msg.Author.Id,
-			"authorUsername": msg.Author.Username,
+			"authorId":            msg.Author.Id,
+			"authorUsername":      msg.Author.Username,
 			"authorDiscriminator": msg.Author.Discriminator,
-			"response": respMsg,
+			"response":            respMsg,
 		})
 		if err != nil {
 			respLogEntry.WithField("error", err).Warn("Failed sending response message")
@@ -111,27 +111,26 @@ func (bot *Bot) onChannelMessage(msg *discord.Message) {
 	}
 }
 
-func (bot *Bot) Run() error {
-	bot.logger.Debug("Bot starting, connecting...")
-
+func (bot *Bot) Run() {
+	bot.logger.Info("Bot starting, connecting...")
 	bot.discord.AddReadyHandler(bot.onSessionReady)
 	bot.discord.AddMessageHandler(bot.onChannelMessage)
 
-	err := bot.discord.Connect()
-	if err != nil {
-		return err
+	if err := bot.discord.Connect(); err != nil {
+		bot.logger.WithField("error", err).Fatal("Could not connect to Discord")
 	}
-
 	bot.logger.Debug("Connected to discord")
 
 	// Run until asked to quit
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
-	<-c
+	interruptChan := make(chan os.Signal, 1)
+	signal.Notify(interruptChan, os.Interrupt, os.Kill)
+	<-interruptChan
 
-	bot.logger.Info("Interrupted, shutting down...")
-
-	return nil
+	bot.logger.Info("Interrupted, disconnecting from discord...")
+	if err := bot.discord.Disconnect(); err != nil {
+		bot.logger.WithField("error", err).Fatal("Failed to disconnect")
+	}
+	bot.logger.Info("Disconnected")
 }
 
 func NewBot(botId string, token string, logger *logrus.Logger) (*Bot, error) {
@@ -195,5 +194,5 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	logger.Fatal(bot.Run())
+	bot.Run()
 }
