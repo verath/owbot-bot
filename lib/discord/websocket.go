@@ -154,9 +154,9 @@ func (sc *WebSocketClient) listen(conn *websocket.Conn, close <-chan interface{}
 		payload := RawGatewayPayload{}
 		if err := json.NewDecoder(r).Decode(&payload); err != nil {
 			sc.logger.WithField("error", err).Error("Error decoding received payload")
-			return
+		} else {
+			go sc.handlePayload(payload)
 		}
-		go sc.handlePayload(payload)
 	}
 }
 
