@@ -115,7 +115,7 @@ func (bot *Bot) onChannelMessage(msg *discord.Message) {
 }
 
 func (bot *Bot) Run() {
-	bot.logger.Info("Bot starting, connecting...")
+	bot.logger.WithField("revision", constants.REVISION).Info("Bot starting, connecting...")
 	bot.discord.AddReadyHandler(bot.onSessionReady)
 	bot.discord.AddMessageHandler(bot.onChannelMessage)
 
@@ -143,6 +143,9 @@ func NewBot(botId string, token string, logger *logrus.Logger) (*Bot, error) {
 	}
 
 	discord, err := discord.NewDiscord(logger, botId, token)
+	if err != nil {
+		return nil, err
+	}
 
 	// Store the logger as an Entry, adding the module to all log calls
 	botLogger := logger.WithField("module", "main")
@@ -195,7 +198,7 @@ func main() {
 
 	bot, err := NewBot(botId, token, logger)
 	if err != nil {
-		logger.Fatal(err)
+		logger.WithField("error", err).Fatal("Error when creating bot")
 	}
 	bot.Run()
 }
