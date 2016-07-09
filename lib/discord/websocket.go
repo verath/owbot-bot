@@ -373,8 +373,12 @@ func (sc *WebSocketClient) onReady() {
 }
 
 func (sc *WebSocketClient) onMessage(msg *Message) {
-	if msg.Author.Id == sc.botId {
-		// Don't notify on our own messages
+	if msg.Author.Bot {
+		// Discard message from bots (including us)
+		sc.logger.WithFields(logrus.Fields{
+			"username":      msg.Author.Username,
+			"discriminator": msg.Author.Discriminator,
+		}).Debug("Ignoring message sent by bot")
 		return
 	}
 	sc.handlersMu.RLock()
