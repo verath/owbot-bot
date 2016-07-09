@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Sirupsen/logrus"
+	"github.com/verath/owbot-bot/lib/constants"
 	"github.com/verath/owbot-bot/lib/discord"
 	"github.com/verath/owbot-bot/lib/overwatch"
 	"os"
@@ -12,11 +13,13 @@ import (
 	"strings"
 )
 
-var HELP_MSG_USAGE = strings.TrimSpace(`
-**ow-bot usage:**
+// TODO: Change to using templates
+var HELP_MSG_USAGE = strings.TrimSpace(fmt.Sprintf(`
+**ow-bot (version %s, %s)**
   - !ow - Shows Overwatch profile summary for your set BattleTag
   - !ow <BattleTag> - Shows Overwatch profile summary for <BattleTag>
-  - !ow set <BattleTag> - Sets the BattleTag for your user to <BattleTag>`)
+  - !ow set <BattleTag> - Sets the BattleTag for your user to <BattleTag>`,
+	constants.REVISION, constants.GITHUB_URL))
 var MSG_HELP_SET_BATTLE_TAG = `I don't know your BattleTag. Use "!ow set <BattleTag>" to set it.`
 var MSG_HELP_INVALID_BATTLE_TAG_FORMAT = `"%s" is not a valid BattleTag`
 var MSG_HELP_UNKNOWN_COMMAND = `Sorry, but I don't know what you want. Type "!ow help" to show help.`

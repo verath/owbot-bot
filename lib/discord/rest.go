@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Sirupsen/logrus"
+	"github.com/verath/owbot-bot/lib/constants"
 	"net/http"
 )
 
@@ -57,8 +59,9 @@ func (rc *RestClient) CreateMessage(channelId string, content string) error {
 		return err
 	}
 
-	req.Header.Set("authorization", rc.token)
+	req.Header.Set("Authorization", rc.token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("DiscordBot (%s, %s)", constants.GITHUB_URL, constants.REVISION))
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
