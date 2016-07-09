@@ -166,7 +166,6 @@ func CheckRateLimited(resp *http.Response) *time.Duration {
 		return nil
 	}
 	retryAfter, err := strconv.Atoi(resp.Header.Get("Retry-After"))
-	println("retry-after" + resp.Header.Get("Retry-After"))
 	if err != nil {
 		retryAfter = DEFAULT_RETRY_AFTER
 	}
