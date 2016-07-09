@@ -11,10 +11,10 @@ type DiscordClient struct {
 	logger *logrus.Entry
 }
 
-func NewDiscord(logger *logrus.Logger, botId string, token string) (*DiscordClient, error) {
+func NewDiscord(logger *logrus.Logger, botId string, token string, userAgent string) (*DiscordClient, error) {
 	discordLogger := logger.WithField("module", "discord")
 
-	rest, err := NewRestClient(logger, token)
+	rest, err := NewRestClient(logger, token, userAgent)
 	if err != nil {
 		return nil, err
 	}

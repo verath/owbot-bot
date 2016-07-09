@@ -9,8 +9,8 @@ if ($?) {
     exit
 }
 
-$ENV:GOOS = 'linux'
-$ENV:GOARCH = 'arm'
+$ENV:GOOS = 'windows'
+$ENV:GOARCH = 'amd64'
 
 go build -ldflags "-X github.com/verath/owbot-bot/owbot.REVISION=$revision" github.com/verath/owbot-bot
 

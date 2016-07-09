@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Sirupsen/logrus"
-	"github.com/verath/owbot-bot/lib/constants"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -31,8 +30,9 @@ type RestClient struct {
 
 	rateLimitedUntil time.Time
 
-	BaseUrl *url.URL
-	token   string
+	BaseUrl   *url.URL
+	UserAgent string
+	token     string
 }
 
 type ErrorResponse struct {
@@ -62,7 +62,7 @@ func createErrorResponse(resp *http.Response) error {
 	return errorResponse
 }
 
-func NewRestClient(logger *logrus.Logger, token string) (*RestClient, error) {
+func NewRestClient(logger *logrus.Logger, token string, userAgent string) (*RestClient, error) {
 	restLogger := logger.WithField("module", "discord-rest")
 
 	baseUrl, _ := url.Parse(API_BASE_URL)
@@ -71,10 +71,11 @@ func NewRestClient(logger *logrus.Logger, token string) (*RestClient, error) {
 	}
 
 	return &RestClient{
-		client:  client,
-		logger:  restLogger,
-		token:   token,
-		BaseUrl: baseUrl,
+		client:    client,
+		logger:    restLogger,
+		token:     token,
+		BaseUrl:   baseUrl,
+		UserAgent: userAgent,
 	}, nil
 }
 
@@ -103,7 +104,7 @@ func (rc *RestClient) NewRequest(method string, urlStr string, body interface{})
 
 	req.Header.Set("Authorization", rc.token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", fmt.Sprintf("DiscordBot (%s, %s)", constants.GITHUB_URL, constants.REVISION))
+	req.Header.Set("User-Agent", rc.UserAgent)
 	return req, nil
 }
 
