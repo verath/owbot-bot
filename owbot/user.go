@@ -98,13 +98,14 @@ func (s *BoltUserSource) mustGetBucket(tx *bolt.Tx, name []byte) *bolt.Bucket {
 }
 
 func (s *BoltUserSource) Get(userId string) (*User, error) {
-	user := new(User)
+	var user *User
 	err := s.db.View(func(tx *bolt.Tx) error {
 		bucket := s.mustGetBucket(tx, bucketUsers)
 		v := bucket.Get([]byte(userId))
 		if v == nil {
 			return nil
 		}
+		user = &User{}
 		return json.Unmarshal(v, user)
 	})
 	return user, err
