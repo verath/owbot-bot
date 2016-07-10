@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Sirupsen/logrus"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,7 +18,7 @@ const (
 
 	// The default number of seconds to wait after getting a 429 - Too Many Requests
 	// response. Used if the retry-after header could not be parsed
-	DEFAULT_RETRY_AFTER = 30
+	DEFAULT_RETRY_AFTER_SECONDS = 10
 )
 
 type RestClient struct {
@@ -28,13 +29,18 @@ type RestClient struct {
 	// requests can be controlled
 	mu sync.Mutex
 
-	rateLimitedUntil time.Time
-
-	BaseUrl   *url.URL
-	UserAgent string
+	baseUrl   *url.URL
+	userAgent string
 	token     string
 }
 
+// RequestCreatorFunc is a wrapper around a function creating an http
+// request. This is used so that a request can be sent multiple times,
+// as needed when a request is failed due to a 429 error.
+type RequestCreatorFunc func() (*http.Request, error)
+
+// ErrorResponse is an error that is populated with additional Discord error
+// data for the failed request.
 type ErrorResponse struct {
 	// The response that caused the error
 	Response *http.Response
@@ -53,11 +59,16 @@ func (e *ErrorResponse) Error() string {
 		e.Code, e.Message)
 }
 
+// Creates an ErrorResponse from a (failed) HTTP Response
+// Tries to populate the ErrorResponse with additional data from
+// the response, if available.
 func createErrorResponse(resp *http.Response) error {
 	errorResponse := &ErrorResponse{Response: resp}
-	err := json.NewDecoder(resp.Body).Decode(errorResponse)
-	if err != nil {
-		return err
+	body, err := ioutil.ReadAll(resp.Body)
+	if err == nil && len(body) > 0 {
+		if err := json.Unmarshal(body, errorResponse); err != nil {
+			return err
+		}
 	}
 	return errorResponse
 }
@@ -74,18 +85,21 @@ func NewRestClient(logger *logrus.Logger, token string, userAgent string) (*Rest
 		client:    client,
 		logger:    restLogger,
 		token:     token,
-		BaseUrl:   baseUrl,
-		UserAgent: userAgent,
+		baseUrl:   baseUrl,
+		userAgent: userAgent,
 	}, nil
 }
 
+// Creates a new Request from the provided parameters. The urlStr is resolved
+// against the BaseUrl, and should not include a starting slash. The body,
+// if not nil, is encoded as JSON.
 func (rc *RestClient) NewRequest(method string, urlStr string, body interface{}) (*http.Request, error) {
 	// Resolve the urlStr against the base url
 	ref, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, err
 	}
-	reqUrl := rc.BaseUrl.ResolveReference(ref).String()
+	reqUrl := rc.baseUrl.ResolveReference(ref).String()
 
 	// Marshal the body as json if a body is present
 	buf := new(bytes.Buffer)
@@ -104,44 +118,64 @@ func (rc *RestClient) NewRequest(method string, urlStr string, body interface{})
 
 	req.Header.Set("Authorization", rc.token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", rc.UserAgent)
+	req.Header.Set("User-Agent", rc.userAgent)
 	return req, nil
 }
 
-func (rc *RestClient) Do(req *http.Request, v interface{}) (*http.Response, error) {
-	reqLogger := rc.logger.WithFields(logrus.Fields{
-		"method": req.Method,
-		"url":    req.URL,
-	})
+// Wrapper that returns a RequestCreatorFunc that calls NewRequest with the provided parameters
+func (rc *RestClient) NewRequestCreatorFunc(method string, urlStr string, body interface{}) RequestCreatorFunc {
+	return func() (*http.Request, error) {
+		return rc.NewRequest(method, urlStr, body)
+	}
+}
 
-	// We lock here so that block additional requests if we
-	// should limit our rate (i.e. if we got a 429 response)
+// Do sends a request. If v is not nil, the response is treated as JSON and decoded to v.
+// Failed requests due to 429 errors are retried until they pass (or fail for other reasons).
+// This method blocks until it can obtain the single send mutex, and until the request is sent
+// and the response is received and parsed. As such, it may block for a long time.
+func (rc *RestClient) Do(v interface{}, reqFunc RequestCreatorFunc) (*http.Response, error) {
+	var req *http.Request
+	var resp *http.Response
+	var reqLogger *logrus.Entry
+	var err error
+
+	// We lock here so that we only handle a single request at a time,
+	// making it simpler to handle Too Many Requests errors.
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	// Wait until we "should" no longer be rate limited
-	time.Sleep(rc.rateLimitedUntil.Sub(time.Now()))
+	for {
+		req, err = reqFunc()
+		if err != nil {
+			return nil, err
+		}
+		resp, err = rc.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		reqLogger = rc.logger.WithFields(logrus.Fields{
+			"method": req.Method,
+			"url":    req.URL,
+		})
 
-	resp, err := rc.client.Do(req)
-	if err != nil {
-		return nil, err
+		// Check if we got a Too Many Requests response, if we did
+		// wait until retryAfter and try the same request again
+		retryAfter := ExtractRetryAfter(resp)
+		if retryAfter <= 0 {
+			break
+		}
+		if err := resp.Body.Close(); err != nil {
+			return nil, err
+		}
+		reqLogger.WithField("retryAfter", retryAfter).Info("Got a 429 response, limiting")
+		time.Sleep(retryAfter)
 	}
+
 	defer func() {
 		if cerr := resp.Body.Close(); err == nil {
 			err = cerr
 		}
 	}()
-
-	retryAfter := CheckRateLimited(resp)
-	if retryAfter != nil {
-		rc.rateLimitedUntil = time.Now().Add(*retryAfter)
-		err := createErrorResponse(resp)
-		reqLogger.WithFields(logrus.Fields{
-			"retryAfter": retryAfter,
-			"error":      err,
-		}).Warn("Got a Too Many Requests response, limiting")
-		return resp, err
-	}
 
 	err = CheckResponse(resp)
 	if err != nil {
@@ -152,7 +186,7 @@ func (rc *RestClient) Do(req *http.Request, v interface{}) (*http.Response, erro
 	if v != nil {
 		err = json.NewDecoder(resp.Body).Decode(v)
 		if err != nil {
-			reqLogger.WithField("error", err).Error("Could not decode response")
+			reqLogger.WithField("error", err).Error("Could not decode response as JSON")
 			return nil, err
 		}
 	}
@@ -161,18 +195,23 @@ func (rc *RestClient) Do(req *http.Request, v interface{}) (*http.Response, erro
 	return resp, nil
 }
 
-func CheckRateLimited(resp *http.Response) *time.Duration {
+// Attempts to extract the Retry-After header value from a Too Many Requests (429)
+// response. Returns 0 if the response is not a 429 response. Otherwise returns a
+// duration matching the Retry-After header if present, or a default duration if
+// it could not be extracted.
+func ExtractRetryAfter(resp *http.Response) time.Duration {
 	if resp.StatusCode != http.StatusTooManyRequests {
-		return nil
+		return 0
 	}
 	retryAfter, err := strconv.Atoi(resp.Header.Get("Retry-After"))
 	if err != nil {
-		retryAfter = DEFAULT_RETRY_AFTER
+		return time.Duration(DEFAULT_RETRY_AFTER_SECONDS) * time.Second
 	}
-	retryAfterDur := time.Duration(retryAfter) * time.Millisecond
-	return &retryAfterDur
+	return time.Duration(retryAfter) * time.Millisecond
 }
 
+// Takes a response and returns an error if the status code is not within
+// the 200-299 range.
 func CheckResponse(resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return nil
@@ -181,12 +220,9 @@ func CheckResponse(resp *http.Response) error {
 }
 
 func (rc *RestClient) GetGateway() (*Gateway, error) {
-	req, err := rc.NewRequest("GET", "gateway", nil)
-	if err != nil {
-		return nil, err
-	}
 	gateway := &Gateway{}
-	_, err = rc.Do(req, gateway)
+	reqFunc := rc.NewRequestCreatorFunc("GET", "gateway", nil)
+	_, err := rc.Do(gateway, reqFunc)
 	return gateway, err
 }
 
@@ -196,12 +232,7 @@ func (rc *RestClient) CreateMessage(channelId string, content string) error {
 	body := struct {
 		Content string `json:"content"`
 	}{content}
-
-	req, err := rc.NewRequest("POST", path, body)
-	if err != nil {
-		return err
-	}
-
-	_, err = rc.Do(req, nil)
+	reqFunc := rc.NewRequestCreatorFunc("POST", path, body)
+	_, err := rc.Do(nil, reqFunc)
 	return err
 }
