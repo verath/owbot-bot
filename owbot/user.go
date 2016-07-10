@@ -1,5 +1,12 @@
 package owbot
 
+import (
+	"encoding/json"
+	"errors"
+	"github.com/Sirupsen/logrus"
+	"github.com/boltdb/bolt"
+)
+
 // A user is a mapping between a Discord user id and
 // a battleTag
 type User struct {
@@ -51,4 +58,68 @@ func (s *MemoryUserSource) Save(user *User) error {
 	*userCopy = *user
 	s.data[userCopy.Id] = userCopy
 	return nil
+}
+
+var bucketUsers = []byte("users")
+
+type BoltUserSource struct {
+	logger *logrus.Entry
+	db     *bolt.DB
+}
+
+func createUsersBucket(db *bolt.DB) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(bucketUsers)
+		return err
+	})
+}
+
+func NewBoltUserSource(logger *logrus.Logger, db *bolt.DB) (*BoltUserSource, error) {
+	// Make sure the users bucket exist
+	if err := createUsersBucket(db); err != nil {
+		return nil, err
+	}
+
+	// Store the logger as an Entry, adding the module to all log calls
+	loggerEntry := logger.WithField("module", "boltUserSource")
+
+	return &BoltUserSource{
+		db:     db,
+		logger: loggerEntry,
+	}, nil
+}
+
+func (s *BoltUserSource) mustGetBucket(tx *bolt.Tx, name []byte) *bolt.Bucket {
+	bucket := tx.Bucket(name)
+	if bucket == nil {
+		s.logger.WithField("name", name).Panic("Bucket not found")
+	}
+	return bucket
+}
+
+func (s *BoltUserSource) Get(userId string) (*User, error) {
+	user := new(User)
+	err := s.db.View(func(tx *bolt.Tx) error {
+		bucket := s.mustGetBucket(tx, bucketUsers)
+		v := bucket.Get([]byte(userId))
+		if v == nil {
+			return nil
+		}
+		return json.Unmarshal(v, user)
+	})
+	return user, err
+}
+
+func (s *BoltUserSource) Save(user *User) error {
+	if user == nil {
+		return errors.New("User can not be nil")
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := s.mustGetBucket(tx, bucketUsers)
+		data, err := json.Marshal(user)
+		if err != nil {
+			return err
+		}
+		return bucket.Put([]byte(user.Id), data)
+	})
 }

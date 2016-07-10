@@ -3,6 +3,7 @@ package owbot
 import (
 	"fmt"
 	"github.com/Sirupsen/logrus"
+	"github.com/boltdb/bolt"
 	"github.com/verath/owbot-bot/owbot/discord"
 	"github.com/verath/owbot-bot/owbot/overwatch"
 	"os"
@@ -129,13 +130,15 @@ func (bot *Bot) onChannelMessage(msg *discord.Message) {
 	}
 }
 
-func (bot *Bot) Run() {
+func (bot *Bot) Run() error {
 	bot.logger.WithField("revision", REVISION).Info("Bot starting, connecting...")
+
 	bot.discord.AddReadyHandler(bot.onSessionReady)
 	bot.discord.AddMessageHandler(bot.onChannelMessage)
 
 	if err := bot.discord.Connect(); err != nil {
-		bot.logger.WithField("error", err).Fatal("Could not connect to Discord")
+		bot.logger.WithField("error", err).Error("Could not connect to Discord")
+		return err
 	}
 	bot.logger.Debug("Connected to discord")
 
@@ -146,12 +149,15 @@ func (bot *Bot) Run() {
 
 	bot.logger.Info("Interrupted, disconnecting from discord...")
 	if err := bot.discord.Disconnect(); err != nil {
-		bot.logger.WithField("error", err).Fatal("Failed to disconnect")
+		bot.logger.WithField("error", err).Error("Failed to disconnect")
+		return err
 	}
 	bot.logger.Info("Disconnected")
+
+	return nil
 }
 
-func NewBot(botId string, token string, logger *logrus.Logger) (*Bot, error) {
+func NewBot(logger *logrus.Logger, db *bolt.DB, botId string, token string) (*Bot, error) {
 	overwatch, err := overwatch.NewOverwatch(logger)
 	if err != nil {
 		return nil, err
@@ -163,10 +169,22 @@ func NewBot(botId string, token string, logger *logrus.Logger) (*Bot, error) {
 		return nil, err
 	}
 
-	userSource := NewMemoryUserSource()
-
 	// Store the logger as an Entry, adding the module to all log calls
 	botLogger := logger.WithField("module", "main")
+
+	// If we have a bolt database, use the BoltUserSource. Else fallback
+	// to an in memory user source
+	var userSource UserSource
+	if db == nil {
+		botLogger.Info("No db provided, using in-memory user source")
+		userSource = NewMemoryUserSource()
+	} else {
+		botLogger.Info("Using Bolt db user source")
+		userSource, err = NewBoltUserSource(logger, db)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &Bot{
 		logger:     botLogger,

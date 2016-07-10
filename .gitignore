@@ -1,3 +1,7 @@
+# Bolt db files
+*.boltdb
+*.boltdb.lock
+
 
 #
 # Go Gitignore
