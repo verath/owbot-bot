@@ -9,6 +9,11 @@
 			"Rev": "f3cfb454f4c209e6668c95216c4744b8fddb2356"
 		},
 		{
+			"ImportPath": "github.com/boltdb/bolt",
+			"Comment": "v1.2.1-11-gacc803f",
+			"Rev": "acc803f0ced151102ed51bf824f8709ebd6602bc"
+		},
+		{
 			"ImportPath": "github.com/gorilla/websocket",
 			"Comment": "v1.0.0-15-g54f9dec",
 			"Rev": "54f9decdbfb3fe254c5df3d5aa234480989f4af0"
