@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/Sirupsen/logrus"
 	"github.com/gorilla/websocket"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -41,19 +42,28 @@ type WebSocketClient struct {
 	msgHandlers   []MessageHandler
 }
 
-func NewWebSocketClient(logger *logrus.Logger, botId string, token string, gatewayUrl string) (*WebSocketClient, error) {
+func NewWebSocketClient(logger *logrus.Logger, botId string, token string, gateway *Gateway) (*WebSocketClient, error) {
 	// Store the logger as an Entry, adding the module to all log calls
 	discordLogger := logger.WithField("module", "discord-websocket")
 
-	// Make sure we connect to correct protocol
-	gatewayUrl += "?encoding=json&v=" + strconv.Itoa(GATEWAY_VERSION)
+	// Add Gateway version and encoding params to websocket url
+	// https://discordapp.com/developers/docs/topics/gateway#gateway-url-params
+	gatewayUrl, err := url.Parse(gateway.Url)
+	if err != nil {
+		return nil, err
+	}
+	query := gatewayUrl.Query()
+	query.Set("encoding", "json")
+	query.Set("v", strconv.Itoa(GATEWAY_VERSION))
+	gatewayUrl.RawQuery = query.Encode()
+	logger.WithField("gatewayUrl", gatewayUrl).Debug("Parsed GatewayURL")
 
 	return &WebSocketClient{
 		logger:     discordLogger,
 		waitGroup:  &sync.WaitGroup{},
 		botId:      botId,
 		token:      token,
-		gatewayUrl: gatewayUrl,
+		gatewayUrl: gatewayUrl.String(),
 	}, nil
 }
 

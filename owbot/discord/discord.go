@@ -25,9 +25,9 @@ func NewDiscord(logger *logrus.Logger, botId string, token string, userAgent str
 		return nil, err
 	}
 
-	discordLogger.WithField("gateway", gateway.Url).Debug("Fetched gateway URL")
+	discordLogger.WithField("gateway", gateway).Debug("Fetched gateway")
 
-	ws, err := NewWebSocketClient(logger, botId, token, gateway.Url)
+	ws, err := NewWebSocketClient(logger, botId, token, gateway)
 	if err != nil {
 		return nil, err
 	}
