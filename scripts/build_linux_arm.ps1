@@ -12,7 +12,7 @@ if ($?) {
 $ENV:GOOS = 'linux'
 $ENV:GOARCH = 'arm'
 
-go build -ldflags "-X github.com/verath/owbot-bot/owbot.REVISION=$revision" github.com/verath/owbot-bot
+go build -ldflags "-X github.com/verath/owbot-bot/owbot.GitRevision=$revision" github.com/verath/owbot-bot
 
 $ENV:GOOS = $null
 $ENV:GOARCH = $null

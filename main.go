@@ -6,6 +6,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/verath/owbot-bot/owbot"
 	"os"
+	"os/signal"
 	"time"
 )
 
@@ -72,18 +73,22 @@ func main() {
 
 	bot, err := owbot.NewBot(logger, db, botId, token)
 	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"module": "main",
-			"error":  err,
-		}).Error("Error when creating bot")
+		logger.WithFields(logrus.Fields{"module": "main", "error": err}).Error("Could not creating bot")
 		return
 	}
 
-	if err := bot.Run(); err != nil {
-		logger.WithFields(logrus.Fields{
-			"module": "main",
-			"error":  err,
-		}).Error("Error when running bot")
+	if err := bot.Start(); err != nil {
+		logger.WithFields(logrus.Fields{"module": "main", "error": err}).Error("Could not start bot")
+		return
+	}
+
+	// Run until asked to quit
+	interruptChan := make(chan os.Signal, 1)
+	signal.Notify(interruptChan, os.Interrupt, os.Kill)
+	<-interruptChan
+
+	if err := bot.Stop(); err != nil {
+		logger.WithFields(logrus.Fields{"module": "main", "error": err}).Error("Could not stop bot")
 		return
 	}
 }

@@ -6,15 +6,17 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/verath/owbot-bot/owbot/discord"
 	"github.com/verath/owbot-bot/owbot/overwatch"
-	"os"
-	"os/signal"
 	"regexp"
 	"strings"
 )
 
 var (
-	GITHUB_URL = "https://github.com/verath/owbot-bot"
-	REVISION   = ""
+	// The url to the project github page
+	GithubUrl = "https://github.com/verath/owbot-bot"
+
+	// The git revision currently running. This value is set during the build
+	// using '-ldflags "-X github.com/verath/owbot-bot/owbot.GitRevision=..."'
+	GitRevision = ""
 )
 
 // TODO: Change to using templates
@@ -23,7 +25,7 @@ var HELP_MSG_USAGE = strings.TrimSpace(fmt.Sprintf(`
   - !ow - Shows Overwatch profile summary for your set BattleTag
   - !ow <BattleTag> - Shows Overwatch profile summary for <BattleTag>
   - !ow set <BattleTag> - Sets the BattleTag for your user to <BattleTag>`,
-	REVISION, GITHUB_URL))
+	GitRevision, GithubUrl))
 var MSG_HELP_SET_BATTLE_TAG = `I don't know your BattleTag. Use "!ow set <BattleTag>" to set it.`
 var MSG_HELP_INVALID_BATTLE_TAG_FORMAT = `"%s" is not a valid BattleTag`
 var MSG_HELP_UNKNOWN_COMMAND = `Sorry, but I don't know what you want. Type "!ow help" to show help.`
@@ -33,6 +35,8 @@ var MSG_ERROR_FETCHING_PROFILE_FORMAT = `Unable to fetch profile for %s.`
 
 var BATTLE_TAG_REGEX = regexp.MustCompile(`^(?P<BattleTag>\w{3,12}#\d+)$`)
 
+// The bot is the main component of the ow-bot. It handles events
+// from Discord and uses the overwatch client to respond to queries.
 type Bot struct {
 	logger     *logrus.Entry
 	overwatch  *overwatch.OverwatchClient
@@ -130,8 +134,11 @@ func (bot *Bot) onChannelMessage(msg *discord.Message) {
 	}
 }
 
-func (bot *Bot) Run() error {
-	bot.logger.WithField("revision", REVISION).Info("Bot starting, connecting...")
+// Starts the bot, connects to Discord and starts listening for events
+func (bot *Bot) Start() error {
+	// TODO: Check that we are not started
+
+	bot.logger.WithField("revision", GitRevision).Info("Bot starting, connecting...")
 
 	bot.discord.AddReadyHandler(bot.onSessionReady)
 	bot.discord.AddMessageHandler(bot.onChannelMessage)
@@ -140,30 +147,35 @@ func (bot *Bot) Run() error {
 		bot.logger.WithField("error", err).Error("Could not connect to Discord")
 		return err
 	}
-	bot.logger.Debug("Connected to discord")
-
-	// Run until asked to quit
-	interruptChan := make(chan os.Signal, 1)
-	signal.Notify(interruptChan, os.Interrupt, os.Kill)
-	<-interruptChan
-
-	bot.logger.Info("Interrupted, disconnecting from discord...")
-	if err := bot.discord.Disconnect(); err != nil {
-		bot.logger.WithField("error", err).Error("Failed to disconnect")
-		return err
-	}
-	bot.logger.Info("Disconnected")
+	bot.logger.Debug("Connected to Discord")
 
 	return nil
 }
 
+// Stops the bot, disconnecting from Discord
+func (bot *Bot) Stop() error {
+	// TODO: Check that we are started
+
+	bot.logger.Info("Bot stopping, disconnecting...")
+	if err := bot.discord.Disconnect(); err != nil {
+		bot.logger.WithField("error", err).Error("Failed to disconnect from Discord")
+		return err
+	}
+	bot.logger.Info("Disconnected from Discord")
+
+	// TODO: Remove added handlers
+
+	return nil
+}
+
+// Creates a new bot.
 func NewBot(logger *logrus.Logger, db *bolt.DB, botId string, token string) (*Bot, error) {
 	overwatch, err := overwatch.NewOverwatch(logger)
 	if err != nil {
 		return nil, err
 	}
 
-	userAgent := fmt.Sprintf("DiscordBot (%s, %s)", GITHUB_URL, REVISION)
+	userAgent := fmt.Sprintf("DiscordBot (%s, %s)", GithubUrl, GitRevision)
 	discord, err := discord.NewDiscord(logger, botId, token, userAgent)
 	if err != nil {
 		return nil, err
