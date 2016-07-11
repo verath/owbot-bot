@@ -12,7 +12,14 @@ import (
 )
 
 const (
-	GATEWAY_VERSION = 5
+	// The Discord gateway version to connect to
+	gatewayVersion = 5
+
+	// Time allowed to write a message to Discord
+	writeWait = 30 * time.Second
+
+	// Time allowed to read a message from Discord
+	readWait = 5 * time.Minute
 )
 
 type ReadyHandler func()
@@ -54,7 +61,7 @@ func NewWebSocketClient(logger *logrus.Logger, botId string, token string, gatew
 	}
 	query := gatewayUrl.Query()
 	query.Set("encoding", "json")
-	query.Set("v", strconv.Itoa(GATEWAY_VERSION))
+	query.Set("v", strconv.Itoa(gatewayVersion))
 	gatewayUrl.RawQuery = query.Encode()
 	logger.WithField("gatewayUrl", gatewayUrl).Debug("Parsed GatewayURL")
 
@@ -75,6 +82,9 @@ func (sc *WebSocketClient) Connect() error {
 	return sc.connect()
 }
 
+// The actual connect method. This method must be called holding the
+// sc.mu mutex. This split is made so that connect and disconnect can
+// be called by reconnect without letting go of the lock.
 func (sc *WebSocketClient) connect() error {
 	if sc.conn != nil {
 		return errors.New("Already connected")
@@ -104,16 +114,28 @@ func (sc *WebSocketClient) Disconnect() error {
 	return sc.disconnect()
 }
 
+// The actual disconnect method. This method must be called holding the
+// sc.mu mutex. This split is made so that connect and disconnect can
+// be called by reconnect without letting go of the lock.
 func (sc *WebSocketClient) disconnect() error {
 	if sc.conn == nil {
 		return errors.New("Not connected")
 	}
 
-	// Signaling our goroutines to stop. We also "force close"
-	// the conn here, to interrupt the listen goroutine
+	// Signaling our goroutines to stop
 	close(sc.close)
 	sc.close = nil
-	err := sc.conn.Close()
+
+	// Write close message and wait for a response to the message.
+	// We are not using the readWait/writeWait timeouts here, as they
+	// are longer than what we want to wait to cleanly close the conn.
+	sc.logger.Info("Writing close message")
+	sc.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	err := sc.conn.WriteMessage(websocket.CloseMessage, []byte{})
+	time.Sleep(time.Second)
+
+	// Then (force) close the connection
+	err = sc.conn.Close()
 	sc.conn = nil
 
 	// Wait until all the goroutines are closed before returning
@@ -143,22 +165,27 @@ func (sc *WebSocketClient) listen(conn *websocket.Conn, close <-chan interface{}
 	defer sc.waitGroup.Done()
 
 	for {
+		// Read raw message from websocket. This is used over e.g. ReadJson
+		// so that we can easier distinguish between socket errors and errors
+		// due to json parsing.
+		// TODO: Perhaps bad JSON should also be handled by reconnecting?
+		conn.SetReadDeadline(time.Now().Add(readWait))
+		_, r, err := conn.NextReader()
+
 		select {
 		case <-close:
 			sc.logger.Info("Close signal in listen, stopping")
 			return
 		default:
-		}
-
-		// Read raw message from websocket. This is used over e.g. ReadJson
-		// so that know that any error was from reading from the socket
-		_, r, err := conn.NextReader()
-		if err != nil {
-			// On error, stop listening and try reconnect. Reconnect is run
-			// on a new goroutine so that the current one can quit
-			sc.logger.WithField("error", err).Error("Error reading from socket")
-			go sc.reconnect(conn)
-			return
+			// On error, and if we have not been asked to close, try to reconnect.
+			// Reconnect is run on a new goroutine so that the current one can
+			// quit, which is required to disconnect.
+			if err != nil {
+				sc.logger.WithField("error", err).Error("Error reading from socket")
+				sc.logger.Info("Attempting to reconnect")
+				go sc.reconnect(conn)
+				return
+			}
 		}
 
 		payload := RawGatewayPayload{}
@@ -206,7 +233,6 @@ func (sc *WebSocketClient) sendPayload(payload GatewayPayload) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
-	// TODO: how to handle errors when sending?
 	logFields := sc.logger.WithFields(logrus.Fields{
 		"op":      payload.OpCode,
 		"op-name": PayloadOpToName(payload.OpCode),
@@ -217,6 +243,8 @@ func (sc *WebSocketClient) sendPayload(payload GatewayPayload) {
 		logFields.WithField("error", err).Error("Error sending payload")
 		return
 	}
+
+	sc.conn.SetWriteDeadline(time.Now().Add(writeWait))
 	if err := sc.conn.WriteJSON(payload); err != nil {
 		logFields.WithField("error", err).Error("Error sending payload")
 		return
