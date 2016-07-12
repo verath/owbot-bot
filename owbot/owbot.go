@@ -170,7 +170,7 @@ func (bot *Bot) Stop() error {
 
 // Creates a new bot.
 func NewBot(logger *logrus.Logger, db *bolt.DB, botId string, token string) (*Bot, error) {
-	overwatch, err := overwatch.NewOverwatch(logger)
+	overwatch, err := overwatch.NewOverwatchClient(logger)
 	if err != nil {
 		return nil, err
 	}

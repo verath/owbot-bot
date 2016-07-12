@@ -2,23 +2,28 @@ package overwatch
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	API_BASE_URL = "https://owapi.net/api/v2"
+	// The base url of the owapi
+	apiBaseUrl = "https://owapi.net/api/v2/"
 
 	// The number of user stats entries to cache
-	USER_STATS_CACHE_SIZE = 200
+	cacheSizeStats = 200
 
 	// Time before user stats is considered stale and should be refetched
-	USER_STATS_CACHE_DURATION = 15 * time.Minute
+	cacheDurationStats = 15 * time.Minute
+
+	// The timeout for use with the http client
+	httpTimeout = 60 * time.Second
 )
 
 type UserStats struct {
@@ -28,6 +33,7 @@ type UserStats struct {
 		Game     int `json:"games"`
 		Level    int `json:"level"`
 		Losses   int `json:"losses"`
+		Prestige int `json:"prestige"`
 		Wins     int `json:"wins"`
 		WinRate  int `json:"win_Rate"`
 	} `json:"overall_stats"`
@@ -39,11 +45,116 @@ type userStatsCacheEntry struct {
 	addedAt time.Time
 }
 
-type OverwatchClient struct {
-	logger         *logrus.Entry
-	userStatsCache *lru.ARCCache
+// ErrorResponse is an error that is populated with additional error
+// data for the failed request.
+// TODO: do we get any extra data on error?
+type ErrorResponse struct {
+	// The response that caused the error
+	Response *http.Response
 }
 
+func (e *ErrorResponse) Error() string {
+	return fmt.Sprintf("%v %v: %d", e.Response.Request.Method, e.Response.Request.URL, e.Response.StatusCode)
+}
+
+type OverwatchClient struct {
+	logger *logrus.Entry
+	client *http.Client
+
+	userStatsCache *lru.ARCCache
+
+	baseUrl *url.URL
+
+	// Mutex that must be held when sending a request to the api,
+	// used so that we limit the amount of requests we do
+	sendMu sync.Mutex
+}
+
+// Creates a new OverwatchClient, a rest client for querying a third party
+// overwatch api.
+func NewOverwatchClient(logger *logrus.Logger) (*OverwatchClient, error) {
+	userStatsCache, err := lru.NewARC(cacheSizeStats)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store the logger as an Entry, adding the module to all log calls
+	overwatchLogger := logger.WithField("module", "overwatch")
+	client := &http.Client{Timeout: httpTimeout}
+	baseUrl, _ := url.Parse(apiBaseUrl)
+
+	return &OverwatchClient{
+		logger:         overwatchLogger,
+		client:         client,
+		userStatsCache: userStatsCache,
+		baseUrl:        baseUrl,
+	}, nil
+}
+
+// Takes a response and returns an error if the status code is not within
+// the 200-299 range.
+func CheckResponse(resp *http.Response) error {
+	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		return nil
+	}
+	return &ErrorResponse{Response: resp}
+}
+
+// Creates a new Request for the provided urlStr. The urlStr is resolved
+// against baseUrl, and should not include a starting slash.
+func (ow *OverwatchClient) NewRequest(urlStr string) (*http.Request, error) {
+	ref, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, err
+	}
+	reqUrl := ow.baseUrl.ResolveReference(ref).String()
+	req, err := http.NewRequest("GET", reqUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	// It seems that setting a Content-Type of application/json makes the API
+	// ignore us, so lets not.
+	//req.Header.Set("Content-Type", "application/json")
+	return req, nil
+}
+
+// Do sends a request. If v is not nil, the response is treated as JSON and decoded to v.
+// This method blocks until it can obtain the single send mutex, and until the request is sent
+// and the response is received and parsed. As such, it may block for a long time.
+func (ow *OverwatchClient) Do(req *http.Request, v interface{}) (*http.Response, error) {
+	ow.sendMu.Lock()
+	defer ow.sendMu.Unlock()
+
+	resp, err := ow.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); err == nil {
+			err = cerr
+		}
+	}()
+	reqLogger := ow.logger.WithFields(logrus.Fields{"method": req.Method, "url": req.URL})
+
+	err = CheckResponse(resp)
+	if err != nil {
+		reqLogger.WithField("error", err).Warn("Bad response")
+		return nil, err
+	}
+
+	if v != nil {
+		err = json.NewDecoder(resp.Body).Decode(v)
+		if err != nil {
+			reqLogger.WithField("error", err).Error("Could not decode response as JSON")
+			return nil, err
+		}
+	}
+
+	reqLogger.Debug("Request was successful")
+	return resp, nil
+}
+
+// Returns a UserStats object for the provided BattleTag.
 func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 	// Url friendly battleTag
 	battleTag = strings.Replace(battleTag, "#", "-", -1)
@@ -52,57 +163,32 @@ func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 		return userStats, nil
 	}
 
-	url := API_BASE_URL
-	url += fmt.Sprintf("/u/%s/stats/general", battleTag)
-	resp, err := http.Get(url)
+	path := fmt.Sprintf("u/%s/stats/general", battleTag)
+	req, err := ow.NewRequest(path)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		ow.logger.WithFields(logrus.Fields{
-			"status": resp.StatusCode,
-			"url":    url,
-		}).Warn("Got a non-200 response from API")
-		return nil, errors.New("Non-200 response")
-	}
-
-	userStats := UserStats{}
-	err = json.NewDecoder(resp.Body).Decode(&userStats)
+	userStats := &UserStats{}
+	_, err = ow.Do(req, userStats)
 	if err != nil {
 		return nil, err
 	}
 
 	// Store to cache
-	cacheEntry := userStatsCacheEntry{&userStats, time.Now()}
+	cacheEntry := userStatsCacheEntry{userStats, time.Now()}
 	ow.userStatsCache.Add(battleTag, cacheEntry)
 
-	return &userStats, nil
+	return userStats, nil
 }
 
 // Returns a cached UserStats entry, if one exist and the data is not considered stale
 func (ow *OverwatchClient) getUserStatsFromCache(battleTag string) (*UserStats, bool) {
 	if cacheEntry, ok := ow.userStatsCache.Get(battleTag); ok {
 		userStatsCacheEntry := cacheEntry.(userStatsCacheEntry)
-		if time.Since(userStatsCacheEntry.addedAt) <= USER_STATS_CACHE_DURATION {
+		if time.Since(userStatsCacheEntry.addedAt) <= cacheDurationStats {
 			return userStatsCacheEntry.UserStats, true
 		}
 	}
 	return nil, false
-}
-
-func NewOverwatch(logger *logrus.Logger) (*OverwatchClient, error) {
-	userStatsCache, err := lru.NewARC(USER_STATS_CACHE_SIZE)
-	if err != nil {
-		return nil, err
-	}
-
-	// Store the logger as an Entry, adding the module to all log calls
-	overwatchLogger := logger.WithField("module", "overwatch")
-
-	return &OverwatchClient{
-		logger:         overwatchLogger,
-		userStatsCache: userStatsCache,
-	}, nil
 }
