@@ -97,9 +97,9 @@ func (bot *Bot) onChannelMessage(chanMessage *discord.Message) {
 	case "help":
 		bot.showUsage(args[2:], chanMessage)
 	case "profile":
-		fallthrough
-	default:
 		bot.showProfile(args[2:], chanMessage)
+	default:
+		bot.showProfile(args[1:], chanMessage)
 	}
 }
 
