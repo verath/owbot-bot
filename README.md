@@ -1,4 +1,6 @@
-#OW-Bot
+#OW-Bot 
+[![Build Status](https://travis-ci.org/verath/owbot-bot.svg?branch=master)](https://travis-ci.org/verath/owbot-bot)
+
 A simple Discord bot, showing Overwatch profile summaries.
 
 Written in go. Discord client heavily inspired by [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo).
