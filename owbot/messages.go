@@ -16,7 +16,7 @@ type invalidBattleTagData struct {
 }
 
 var tmplInvalidBattleTag = template.Must(template.New("InvalidBattleTag").
-	Parse(`<@{{ .MentionId }}> "{{ .BattleTag }}" is not a valid BattleTag`))
+	Parse(`<@{{ .MentionId }}>: "{{ .BattleTag }}" is not a valid BattleTag`))
 
 type unknownDiscordUserData struct {
 	MentionId string
@@ -30,23 +30,41 @@ type fetchErrorData struct {
 }
 
 var tmplFetchError = template.Must(template.New("FetchError").
-	Parse(`Unable to fetch profile for {{ .BattleTag }}`))
+	Parse(`Unable to fetch competitive stats for "{{ .BattleTag }}"`))
 
-var tmplOverwatchProfile = template.Must(template.New("OverwatchProfile").
-	Parse(`**{{ .BattleTag }}** (Level: {{ .OverallStats.Level }}, Rank: {{ .OverallStats.CompRank }})`))
+type battleTagUpdatedData struct {
+	MentionId string
+	BattleTag string
+}
+
+var tmplBattleTagUpdated = template.Must(template.New("BattleTagUpdated").
+	Parse(`BattleTag for <@{{ .MentionId }}> is now "{{ .BattleTag }}"`))
+
+var tmplOverwatchProfile = template.Must(template.New("OverwatchProfile").Parse(strings.TrimSpace(`
+__**{{ .BattleTag }} (competitive)**__
+**Level:** {{ .OverallStats.Level }} +{{ .OverallStats.Prestige }}
+**Rank:** {{ .OverallStats.CompRank }}
+**K/D:** {{ .GameStats.Eliminations -}} / {{- .GameStats.Deaths }}  ({{ .GameStats.KPD }} KPD)
+**Matches W/L:** {{ .OverallStats.Wins -}} / {{- .OverallStats.Losses }} ({{ .OverallStats.Games }} total)
+**Time Played:** {{ .GameStats.TimePlayed }} hours
+`)))
 
 // Not using template here as the strings do not update
 var msgUsage = fmt.Sprintf(strings.TrimSpace(`
-**ow-bot (r%s, %s)**
-  - !ow profile <DiscordUser> - Shows overwatch profile summary for <DiscordUser>
-  - !ow profile <BattleTag> - Shows Overwatch profile summary for <BattleTag>
-  - !ow set <BattleTag> - Sets your BattleTag to <BattleTag>.
+__**ow-bot (%s)**__
+- **!ow profile <DiscordUser>** - Shows Overwatch profile summary
+- **!ow profile <BattleTag>** - Shows Overwatch profile summary
+- **!ow set <BattleTag>** - Sets your BattleTag
+- **!ow set <DiscordUser> <BattleTag>** - Sets the BattleTag of a user
+- **!ow version** - Shows the version of the bot
+- **!ow help** - Shows this message
 
-<DiscordUser>: A Discord user mention (@username)
-<BattleTag>: A Battle.net BattleTag (username#12345)`),
-	GitRevision, GitHubUrl)
+**<DiscordUser>**: A Discord user mention (@username)
+**<BattleTag>**: A Battle.net BattleTag (username#12345)`),
+	GitHubUrl)
 
-var msgSetBattleTag = `I don't know your BattleTag. Use "!ow set <BattleTag>" to set it.`
+var msgVersion = fmt.Sprintf(`Version %s: %s/commit/%s`, GitRevision, GitHubUrl, GitRevision)
+
 var msgUnknownCommand = `Sorry, but I don't know what you want. Type "!ow help" to show usage help.`
 
 // A BattleTag is 3-12 characters, followed by "#", followed by digits
@@ -54,7 +72,7 @@ var regexBattleTag = regexp.MustCompile(`^\w{3,12}#\d+$`)
 
 // A discord mention is either "<@USER_SNOWFLAKE_ID>" or "<@!USER_SNOWFLAKE_ID>"
 // https://discordapp.com/developers/docs/resources/channel#message-formatting
-var regexDiscordMention = regexp.MustCompile(`^<@!?(\d+)>$`)
+var regexMention = regexp.MustCompile(`^<@!?(\d+)>$`)
 
 func (bot *Bot) sendMessage(channelId string, msg string) {
 	err := bot.discord.CreateMessage(channelId, msg)
@@ -96,6 +114,8 @@ func (bot *Bot) onChannelMessage(chanMessage *discord.Message) {
 		bot.setBattleTag(args[2:], chanMessage)
 	case "help":
 		bot.showUsage(args[2:], chanMessage)
+	case "version":
+		bot.showVersion(args[2:], chanMessage)
 	case "profile":
 		bot.showProfile(args[2:], chanMessage)
 	default:
@@ -115,9 +135,9 @@ func (bot *Bot) showProfile(args []string, chanMessage *discord.Message) {
 		if len(args) == 0 {
 			// !ow profile
 			discordId = chanMessage.Author.Id
-		} else if len(args) == 1 && regexDiscordMention.MatchString(args[0]) {
+		} else if len(args) == 1 && regexMention.MatchString(args[0]) {
 			// !ow profile @username
-			matches := regexDiscordMention.FindStringSubmatch(args[0])
+			matches := regexMention.FindStringSubmatch(args[0])
 			discordId = matches[1]
 		} else {
 			bot.sendMessage(chanId, msgUnknownCommand)
@@ -156,20 +176,72 @@ func (bot *Bot) setBattleTag(args []string, chanMessage *discord.Message) {
 		return
 	}
 
-	battleTag := args[0]
-	if regexBattleTag.MatchString(battleTag) {
-		user := &User{chanMessage.Author.Id, battleTag, chanMessage.Author.Id}
-		err := bot.userSource.Save(user)
-		if err != nil {
-			bot.logger.WithFields(logrus.Fields{
-				"error": err,
-				"user":  user,
-			}).Error("Failed saving user to datasource")
+	var userId string
+	if len(args) >= 2 {
+		// !ow <@user> tag#123
+		userMention := args[0]
+		args = args[1:]
+		if matches := regexMention.FindStringSubmatch(userMention); matches != nil {
+			// To validate the userId, we make sure the id we extracted is
+			// also included in the Mentioned users of the discord message
+			for _, user := range chanMessage.Mentions {
+				if user.Id == matches[1] {
+					userId = matches[1]
+					break
+				}
+			}
+		}
+		if userId == "" {
+			bot.sendMessage(chanMessage.ChannelId, msgUnknownCommand)
+			return
 		}
 	} else {
+		userId = chanMessage.Author.Id
+	}
+
+	// If we get here, we should only have to handle !ow battleTag#123
+	// as the optional user mention is handled above
+	if len(args) > 1 {
+		bot.sendMessage(chanMessage.ChannelId, msgUnknownCommand)
+		return
+	}
+
+	// Make sure the argument is a "valid" battleTag
+	battleTag := args[0]
+	if !regexBattleTag.MatchString(battleTag) {
 		data := invalidBattleTagData{chanMessage.Author.Id, battleTag}
 		bot.sendTemplateMessage(chanMessage.ChannelId, tmplInvalidBattleTag, data)
+		return
 	}
+
+	// Only allowed to update a user object if the author of the message
+	// is the owner, or if the user has not been set by the owner yet
+	currUser, err := bot.userSource.Get(userId)
+	if err != nil {
+		bot.logger.WithError(err).WithField("userId", userId).Error("Failed getting user to datasource")
+		return
+	}
+	if currUser != nil && currUser.Id != chanMessage.Author.Id && currUser.CreatedBy == currUser.Id {
+		bot.logger.WithFields(logrus.Fields{
+			"currUser": currUser,
+			"authorId": chanMessage.Author.Id,
+		}).Debug("Not allowed to change data set by owner")
+		return
+	}
+
+	// Update the user object and store it
+	user := &User{userId, battleTag, chanMessage.Author.Id}
+	if err := bot.userSource.Save(user); err != nil {
+		bot.logger.WithError(err).WithField("user", user).Error("Failed saving user to datasource")
+		return
+	}
+
+	data := battleTagUpdatedData{userId, battleTag}
+	bot.sendTemplateMessage(chanMessage.ChannelId, tmplBattleTagUpdated, data)
+}
+
+func (bot *Bot) showVersion(args []string, chanMessage *discord.Message) {
+	bot.sendMessage(chanMessage.ChannelId, msgVersion)
 }
 
 func (bot *Bot) showUsage(args []string, chanMessage *discord.Message) {

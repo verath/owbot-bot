@@ -16,4 +16,5 @@ type Message struct {
 	ChannelId string `json:"channel_id"`
 	Author    *User  `json:"author"`
 	Content   string `json:"content"`
+	Mentions  []User `json:"mentions"`
 }

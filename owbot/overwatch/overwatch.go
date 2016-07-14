@@ -30,13 +30,20 @@ type UserStats struct {
 	BattleTag    string `json:"battletag"`
 	OverallStats struct {
 		CompRank int `json:"comprank"`
-		Game     int `json:"games"`
+		Games    int `json:"games"`
 		Level    int `json:"level"`
 		Losses   int `json:"losses"`
 		Prestige int `json:"prestige"`
 		Wins     int `json:"wins"`
 		WinRate  int `json:"win_Rate"`
 	} `json:"overall_stats"`
+	GameStats struct {
+		Deaths       float32 `json:"deaths"`
+		Eliminations float32 `json:"eliminations"`
+		SoloKills    float32 `json:"solo_kills"`
+		KPD          float32 `json:"kpd"`
+		TimePlayed   float32 `json:"time_played"`
+	} `json:"game_stats"`
 	Region string `json:"region"`
 }
 
@@ -163,7 +170,7 @@ func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 		return userStats, nil
 	}
 
-	path := fmt.Sprintf("u/%s/stats/general", battleTag)
+	path := fmt.Sprintf("u/%s/stats/competitive", battleTag)
 	req, err := ow.NewRequest(path)
 	if err != nil {
 		return nil, err
