@@ -22,8 +22,9 @@ owbot-bot -id "BOT_ID" -token "BOT_TOKEN"
 ```
 
 ## Adding the bot to a channel
-The bot can be added to a channel by using the Discord OAuth flow:
+The bot can be added to a channel by using the Discord OAuth flow
+with the `READ_MESSAGES` and `SEND_MESSAGES` permissions:
 
-[https://discordapp.com/oauth2/authorize?scope=bot&permissions=1051648&client_id=CLIENT_ID](https://discordapp.com/oauth2/authorize?scope=bot&permissions=1051648&client_id=<CLIENT_ID>)
+https://discordapp.com/oauth2/authorize?scope=bot&permissions=3072&client_id=CLIENT_ID
 
 Note that CLIENT_ID is the Discord Client/Application ID, and not the Bot ID.
