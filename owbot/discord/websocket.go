@@ -143,24 +143,6 @@ func (sc *WebSocketClient) disconnect() error {
 	return err
 }
 
-// Updates the current user's status.
-// If idleSince >= 0, the user's idle time is set to the time specified
-// If gameName != "", the value is set as the currently playing game for the user
-// https://discordapp.com/developers/docs/topics/gateway#gateway-status-update
-func (sc *WebSocketClient) UpdateStatus(idleSince int, gameName string) error {
-	data := GatewayStatusUpdateData{}
-	if idleSince >= 0 {
-		data.IdleSince = &idleSince
-	}
-	if gameName != "" {
-		data.Game = &StatusUpdateGame{gameName}
-	}
-	payload := NewGatewayPayload(PAYLOAD_GATEWAY_STATUS_UPDATE, data, nil, nil)
-
-	sc.sendPayload(payload)
-	return nil
-}
-
 func (sc *WebSocketClient) listen(conn *websocket.Conn, close <-chan interface{}) {
 	defer sc.waitGroup.Done()
 
@@ -384,6 +366,24 @@ func (sc *WebSocketClient) handleEventMessageCreate(data json.RawMessage) {
 	}
 
 	sc.onMessage(messageCreate.Message)
+}
+
+// Updates the current user's status.
+// If idleSince >= 0, the user's idle time is set to the time specified
+// If gameName != "", the value is set as the currently playing game for the user
+// https://discordapp.com/developers/docs/topics/gateway#gateway-status-update
+func (sc *WebSocketClient) UpdateStatus(idleSince int, gameName string) error {
+	data := GatewayStatusUpdateData{}
+	if idleSince >= 0 {
+		data.IdleSince = &idleSince
+	}
+	if gameName != "" {
+		data.Game = &StatusUpdateGame{gameName}
+	}
+	payload := NewGatewayPayload(PAYLOAD_GATEWAY_STATUS_UPDATE, data, nil, nil)
+
+	sc.sendPayload(payload)
+	return nil
 }
 
 //

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Sirupsen/logrus"
+	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -14,11 +15,11 @@ import (
 )
 
 const (
-	API_BASE_URL = "https://discordapp.com/api/"
+	apiBaseURL = "https://discordapp.com/api/"
 
 	// The default number of seconds to wait after getting a 429 - Too Many Requests
 	// response. Used if the retry-after header could not be parsed
-	DEFAULT_RETRY_AFTER_SECONDS = 10
+	defaultRetryAfter = 10 * time.Second
 )
 
 type RestClient struct {
@@ -29,7 +30,7 @@ type RestClient struct {
 	// requests can be controlled
 	mu sync.Mutex
 
-	baseUrl   *url.URL
+	baseURL   *url.URL
 	userAgent string
 	token     string
 }
@@ -76,16 +77,14 @@ func createErrorResponse(resp *http.Response) error {
 func NewRestClient(logger *logrus.Logger, token string, userAgent string) (*RestClient, error) {
 	restLogger := logger.WithField("module", "discord-rest")
 
-	baseUrl, _ := url.Parse(API_BASE_URL)
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	baseURL, _ := url.Parse(apiBaseURL)
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	return &RestClient{
 		client:    client,
 		logger:    restLogger,
 		token:     token,
-		baseUrl:   baseUrl,
+		baseURL:   baseURL,
 		userAgent: userAgent,
 	}, nil
 }
@@ -93,13 +92,18 @@ func NewRestClient(logger *logrus.Logger, token string, userAgent string) (*Rest
 // Creates a new Request from the provided parameters. The urlStr is resolved
 // against the BaseUrl, and should not include a starting slash. The body,
 // if not nil, is encoded as JSON.
-func (rc *RestClient) NewRequest(method string, urlStr string, body interface{}) (*http.Request, error) {
+func (rc *RestClient) NewRequest(ctx context.Context, method string, urlStr string, body interface{}) (*http.Request, error) {
+	// Check the context to make sure it is not canceled already
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Resolve the urlStr against the base url
 	ref, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, err
 	}
-	reqUrl := rc.baseUrl.ResolveReference(ref).String()
+	reqURL := rc.baseURL.ResolveReference(ref).String()
 
 	// Marshal the body as json if a body is present
 	buf := new(bytes.Buffer)
@@ -111,10 +115,13 @@ func (rc *RestClient) NewRequest(method string, urlStr string, body interface{})
 		buf = bytes.NewBuffer(data)
 	}
 
-	req, err := http.NewRequest(method, reqUrl, buf)
+	req, err := http.NewRequest(method, reqURL, buf)
 	if err != nil {
 		return nil, err
 	}
+
+	// Set request to cancel when the context is canceled
+	req.Cancel = ctx.Done()
 
 	req.Header.Set("Authorization", rc.token)
 	req.Header.Set("Content-Type", "application/json")
@@ -123,9 +130,9 @@ func (rc *RestClient) NewRequest(method string, urlStr string, body interface{})
 }
 
 // Wrapper that returns a RequestCreatorFunc that calls NewRequest with the provided parameters
-func (rc *RestClient) NewRequestCreatorFunc(method string, urlStr string, body interface{}) RequestCreatorFunc {
+func (rc *RestClient) NewRequestCreatorFunc(ctx context.Context, method string, urlStr string, body interface{}) RequestCreatorFunc {
 	return func() (*http.Request, error) {
-		return rc.NewRequest(method, urlStr, body)
+		return rc.NewRequest(ctx, method, urlStr, body)
 	}
 }
 
@@ -133,7 +140,7 @@ func (rc *RestClient) NewRequestCreatorFunc(method string, urlStr string, body i
 // Failed requests due to 429 errors are retried until they pass (or fail for other reasons).
 // This method blocks until it can obtain the single send mutex, and until the request is sent
 // and the response is received and parsed. As such, it may block for a long time.
-func (rc *RestClient) Do(v interface{}, reqFunc RequestCreatorFunc) (*http.Response, error) {
+func (rc *RestClient) Do(reqFunc RequestCreatorFunc, v interface{}) (*http.Response, error) {
 	var req *http.Request
 	var resp *http.Response
 	var reqLogger *logrus.Entry
@@ -205,7 +212,7 @@ func ExtractRetryAfter(resp *http.Response) time.Duration {
 	}
 	retryAfter, err := strconv.Atoi(resp.Header.Get("Retry-After"))
 	if err != nil {
-		return time.Duration(DEFAULT_RETRY_AFTER_SECONDS) * time.Second
+		return defaultRetryAfter
 	}
 	return time.Duration(retryAfter) * time.Millisecond
 }
@@ -219,20 +226,20 @@ func CheckResponse(resp *http.Response) error {
 	return createErrorResponse(resp)
 }
 
-func (rc *RestClient) GetGateway() (*Gateway, error) {
+func (rc *RestClient) GetGateway(ctx context.Context) (*Gateway, error) {
+	reqFunc := rc.NewRequestCreatorFunc(ctx, "GET", "gateway", nil)
 	gateway := &Gateway{}
-	reqFunc := rc.NewRequestCreatorFunc("GET", "gateway", nil)
-	_, err := rc.Do(gateway, reqFunc)
+	_, err := rc.Do(reqFunc, gateway)
 	return gateway, err
 }
 
 // https://discordapp.com/developers/docs/resources/channel#create-message
-func (rc *RestClient) CreateMessage(channelId string, content string) error {
+func (rc *RestClient) CreateMessage(ctx context.Context, channelId string, content string) error {
 	path := fmt.Sprintf("channels/%s/messages", channelId)
 	body := struct {
 		Content string `json:"content"`
-	}{content}
-	reqFunc := rc.NewRequestCreatorFunc("POST", path, body)
-	_, err := rc.Do(nil, reqFunc)
+	}{Content: content}
+	reqFunc := rc.NewRequestCreatorFunc(ctx, "POST", path, body)
+	_, err := rc.Do(reqFunc, nil)
 	return err
 }

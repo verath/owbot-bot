@@ -2,6 +2,7 @@ package discord
 
 import (
 	"github.com/Sirupsen/logrus"
+	"golang.org/x/net/context"
 )
 
 type DiscordClient struct {
@@ -20,7 +21,8 @@ func NewDiscord(logger *logrus.Logger, botId string, token string, userAgent str
 	}
 
 	// Fetch the websocket gateway url
-	gateway, err := rest.GetGateway()
+	ctx := context.Background()
+	gateway, err := rest.GetGateway(ctx)
 	if err != nil {
 		return nil, err
 	}

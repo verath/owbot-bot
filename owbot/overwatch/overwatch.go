@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
+	"golang.org/x/net/context"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -21,9 +21,6 @@ const (
 
 	// Time before user stats is considered stale and should be re-fetched
 	cacheDurationStats = 5 * time.Minute
-
-	// The timeout for use with the http client
-	httpTimeout = 15 * time.Second
 )
 
 type UserStats struct {
@@ -72,10 +69,11 @@ type OverwatchClient struct {
 
 	baseUrl *url.URL
 
-	// Mutex that must be held when sending a request to the api,
-	// used so that we limit the amount of requests we do to a single
-	// request at a time.
-	reqMu sync.Mutex
+	// Channel of request "tokens". A token must be obtained before
+	// making a request against the api, so that we limit the amount
+	// of requests we do to a single request at a time. (which we do
+	// to not spam the third-party OWAPI we are using)
+	nextCh chan bool
 }
 
 // Creates a new OverwatchClient, a rest client for querying a third party
@@ -88,14 +86,20 @@ func NewOverwatchClient(logger *logrus.Logger) (*OverwatchClient, error) {
 
 	// Store the logger as an Entry, adding the module to all log calls
 	overwatchLogger := logger.WithField("module", "overwatch")
-	client := &http.Client{Timeout: httpTimeout}
+	client := http.DefaultClient
 	baseUrl, _ := url.Parse(apiBaseUrl)
+
+	// Create and initialize the next channel with a token. We use a buffer
+	// size of 1 so returning tokens (and the initial add) does not block
+	nextCh := make(chan bool, 1)
+	nextCh <- true
 
 	return &OverwatchClient{
 		logger:         overwatchLogger,
 		client:         client,
 		userStatsCache: userStatsCache,
 		baseUrl:        baseUrl,
+		nextCh:         nextCh,
 	}, nil
 }
 
@@ -163,12 +167,29 @@ func (ow *OverwatchClient) Do(req *http.Request, v interface{}) (*http.Response,
 }
 
 // Returns a UserStats object for the provided BattleTag.
-func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
+func (ow *OverwatchClient) GetStats(ctx context.Context, battleTag string) (*UserStats, error) {
 	// Url friendly battleTag
 	battleTag = strings.Replace(battleTag, "#", "-", -1)
 
-	// Try get from cache, before obtaining the lock so that we can
-	// return directly for cached requests
+	// Try get from cache, before trying to send a request, so that we can
+	// return directly if we have a cached requests
+	if userStats, ok := ow.getUserStatsFromCache(battleTag); ok {
+		return userStats, nil
+	}
+
+	// We wait here until either we can obtain a "request token" from nextCh,
+	// or our context is canceled.
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-ow.nextCh:
+		defer func() {
+			ow.nextCh <- true
+		}()
+	}
+
+	// We check cache again after obtaining the token, as we might
+	// have slept during another request for the same battleTag
 	if userStats, ok := ow.getUserStatsFromCache(battleTag); ok {
 		return userStats, nil
 	}
@@ -179,17 +200,8 @@ func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 		return nil, err
 	}
 
-	// We obtain the single-request mutex here, so we don't spam the
-	// OWAPI with requests
-	// TODO: We might be stuck here for a long time, should add a deadline
-	ow.reqMu.Lock()
-	defer ow.reqMu.Unlock()
-
-	// We check cache again after obtaining the lock, as we might
-	// have slept during another request for the same battleTag
-	if userStats, ok := ow.getUserStatsFromCache(battleTag); ok {
-		return userStats, nil
-	}
+	// Set the request to be canceled if the context is canceled
+	req.Cancel = ctx.Done()
 
 	userStats := &UserStats{}
 	_, err = ow.Do(req, userStats)
