@@ -19,11 +19,11 @@ const (
 	// The number of user stats entries to cache
 	cacheSizeStats = 200
 
-	// Time before user stats is considered stale and should be refetched
-	cacheDurationStats = 15 * time.Minute
+	// Time before user stats is considered stale and should be re-fetched
+	cacheDurationStats = 5 * time.Minute
 
 	// The timeout for use with the http client
-	httpTimeout = 60 * time.Second
+	httpTimeout = 15 * time.Second
 )
 
 type UserStats struct {
@@ -73,8 +73,9 @@ type OverwatchClient struct {
 	baseUrl *url.URL
 
 	// Mutex that must be held when sending a request to the api,
-	// used so that we limit the amount of requests we do
-	sendMu sync.Mutex
+	// used so that we limit the amount of requests we do to a single
+	// request at a time.
+	reqMu sync.Mutex
 }
 
 // Creates a new OverwatchClient, a rest client for querying a third party
@@ -123,12 +124,8 @@ func (ow *OverwatchClient) NewRequest(urlStr string) (*http.Request, error) {
 }
 
 // Do sends a request. If v is not nil, the response is treated as JSON and decoded to v.
-// This method blocks until it can obtain the single send mutex, and until the request is sent
-// and the response is received and parsed. As such, it may block for a long time.
+// This method blocks until the request is sent and the response is received and parsed.
 func (ow *OverwatchClient) Do(req *http.Request, v interface{}) (*http.Response, error) {
-	ow.sendMu.Lock()
-	defer ow.sendMu.Unlock()
-
 	resp, err := ow.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -142,16 +139,16 @@ func (ow *OverwatchClient) Do(req *http.Request, v interface{}) (*http.Response,
 
 	err = CheckResponse(resp)
 	if err != nil {
-		reqLogger.WithField("error", err).Warn("Bad response")
+		reqLogger.WithError(err).Warn("Bad response")
 		return nil, err
 	}
 
 	if v != nil {
 		err = json.NewDecoder(resp.Body).Decode(v)
 		if err != nil {
+			errLogger := reqLogger.WithError(err)
 			// We ignore UnmarshalTypeError errors, as returning the zero-value for the
 			// field is better than returning nothing
-			errLogger := reqLogger.WithError(err)
 			if _, ok := err.(*json.UnmarshalTypeError); ok {
 				errLogger.Warn("Ignoring type error when decoding response as JSON")
 			} else {
@@ -170,6 +167,8 @@ func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 	// Url friendly battleTag
 	battleTag = strings.Replace(battleTag, "#", "-", -1)
 
+	// Try get from cache, before obtaining the lock so that we can
+	// return directly for cached requests
 	if userStats, ok := ow.getUserStatsFromCache(battleTag); ok {
 		return userStats, nil
 	}
@@ -178,6 +177,18 @@ func (ow *OverwatchClient) GetStats(battleTag string) (*UserStats, error) {
 	req, err := ow.NewRequest(path)
 	if err != nil {
 		return nil, err
+	}
+
+	// We obtain the single-request mutex here, so we don't spam the
+	// OWAPI with requests
+	// TODO: We might be stuck here for a long time, should add a deadline
+	ow.reqMu.Lock()
+	defer ow.reqMu.Unlock()
+
+	// We check cache again after obtaining the lock, as we might
+	// have slept during another request for the same battleTag
+	if userStats, ok := ow.getUserStatsFromCache(battleTag); ok {
+		return userStats, nil
 	}
 
 	userStats := &UserStats{}
