@@ -119,9 +119,6 @@ func (ow *OverwatchClient) NewRequest(urlStr string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	// It seems that setting a Content-Type of application/json makes the API
-	// ignore us, so lets not.
-	//req.Header.Set("Content-Type", "application/json")
 	return req, nil
 }
 
@@ -152,8 +149,15 @@ func (ow *OverwatchClient) Do(req *http.Request, v interface{}) (*http.Response,
 	if v != nil {
 		err = json.NewDecoder(resp.Body).Decode(v)
 		if err != nil {
-			reqLogger.WithField("error", err).Error("Could not decode response as JSON")
-			return nil, err
+			// We ignore UnmarshalTypeError errors, as returning the zero-value for the
+			// field is better than returning nothing
+			errLogger := reqLogger.WithError(err)
+			if _, ok := err.(*json.UnmarshalTypeError); ok {
+				errLogger.Warn("Ignoring type error when decoding response as JSON")
+			} else {
+				errLogger.Error("Could not decode response as JSON")
+				return nil, err
+			}
 		}
 	}
 
