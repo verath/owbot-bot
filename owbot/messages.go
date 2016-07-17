@@ -30,7 +30,7 @@ type unknownDiscordUserData struct {
 }
 
 var tmplUnknownDiscordUser = template.Must(template.New("UnknownDiscordUser").
-	Parse(`No BattleTag set for <@{{ .MentionId }}>`))
+	Parse(`No BattleTag for <@{{ .MentionId }}>, use "!ow set <@{{ .MentionId }}> <BattleTag>" to set one`))
 
 type fetchErrorData struct {
 	BattleTag string
@@ -53,6 +53,7 @@ __**{{ .BattleTag }} (competitive)**__
 **Rank:** {{ .OverallStats.CompRank }}
 **K/D:** {{ .GameStats.Eliminations -}} / {{- .GameStats.Deaths }}  ({{ .GameStats.KPD }} KPD)
 **Matches W/L:** {{ .OverallStats.Wins -}} / {{- .OverallStats.Losses }} ({{ .OverallStats.Games }} total)
+**Medals G/S/B:** {{ .GameStats.MedalsGold -}} / {{- .GameStats.MedalsSilver -}} / {{- .GameStats.MedalsBronze }} ({{ .GameStats.Medals }} total)
 **Time Played:** {{ .GameStats.TimePlayed }} hours
 `)))
 

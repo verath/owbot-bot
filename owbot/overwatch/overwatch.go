@@ -40,6 +40,10 @@ type UserStats struct {
 		SoloKills    float32 `json:"solo_kills"`
 		KPD          float32 `json:"kpd"`
 		TimePlayed   float32 `json:"time_played"`
+		Medals       float32 `json:"medals"`
+		MedalsGold   float32 `json:"medals_gold"`
+		MedalsSilver float32 `json:"medals_silver"`
+		MedalsBronze float32 `json:"medals_bronze"`
 	} `json:"game_stats"`
 	Region string `json:"region"`
 }
