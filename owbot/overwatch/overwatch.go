@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
-	"golang.org/x/net/context"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"context"
 )
 
 const (

@@ -2,10 +2,10 @@ package owbot
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/verath/owbot-bot/owbot/discord"
-	"golang.org/x/net/context"
 	"regexp"
 	"strings"
 	"text/template"

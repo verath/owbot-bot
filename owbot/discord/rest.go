@@ -2,10 +2,10 @@ package discord
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/Sirupsen/logrus"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 	"net/url"
