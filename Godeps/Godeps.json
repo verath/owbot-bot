@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/verath/owbot-bot",
-	"GoVersion": "go1.6",
+	"GoVersion": "go1.7",
 	"GodepVersion": "v74",
 	"Deps": [
 		{
@@ -25,10 +25,6 @@
 		{
 			"ImportPath": "github.com/hashicorp/golang-lru/simplelru",
 			"Rev": "a0d98a5f288019575c6d1f4bb1573fef2d1fcdc4"
-		},
-		{
-			"ImportPath": "golang.org/x/net/context",
-			"Rev": "bc3663df0ac92f928d419e31e0d2af22e683a5a2"
 		},
 		{
 			"ImportPath": "golang.org/x/sys/unix",
