@@ -91,13 +91,9 @@ func NewRestClient(logger *logrus.Logger, token string, userAgent string) (*Rest
 
 // Creates a new Request from the provided parameters. The urlStr is resolved
 // against the BaseUrl, and should not include a starting slash. The body,
-// if not nil, is encoded as JSON.
+// if not nil, is encoded as JSON. The context must not be nil, and is
+// attached to the request.
 func (rc *RestClient) NewRequest(ctx context.Context, method string, urlStr string, body interface{}) (*http.Request, error) {
-	// Check the context to make sure it is not canceled already
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
 	// Resolve the urlStr against the base url
 	ref, err := url.Parse(urlStr)
 	if err != nil {
@@ -119,9 +115,7 @@ func (rc *RestClient) NewRequest(ctx context.Context, method string, urlStr stri
 	if err != nil {
 		return nil, err
 	}
-
-	// Set request to cancel when the context is canceled
-	req.Cancel = ctx.Done()
+	req = req.WithContext(ctx)
 
 	req.Header.Set("Authorization", rc.token)
 	req.Header.Set("Content-Type", "application/json")

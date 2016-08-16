@@ -117,8 +117,9 @@ func CheckResponse(resp *http.Response) error {
 }
 
 // Creates a new Request for the provided urlStr. The urlStr is resolved
-// against baseUrl, and should not include a starting slash.
-func (ow *OverwatchClient) NewRequest(urlStr string) (*http.Request, error) {
+// against baseUrl, and should not include a starting slash. The context
+// must not be nil, and is assigned to the request.
+func (ow *OverwatchClient) NewRequest(ctx context.Context, urlStr string) (*http.Request, error) {
 	ref, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, err
@@ -128,6 +129,7 @@ func (ow *OverwatchClient) NewRequest(urlStr string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 	return req, nil
 }
 
@@ -199,13 +201,10 @@ func (ow *OverwatchClient) GetStats(ctx context.Context, battleTag string) (*Use
 	}
 
 	path := fmt.Sprintf("u/%s/stats/competitive", battleTag)
-	req, err := ow.NewRequest(path)
+	req, err := ow.NewRequest(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-
-	// Set the request to be canceled if the context is canceled
-	req.Cancel = ctx.Done()
 
 	userStats := &UserStats{}
 	_, err = ow.Do(req, userStats)
