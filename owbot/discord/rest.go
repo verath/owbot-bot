@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,6 +80,12 @@ func NewRestClient(logger *logrus.Logger, token string, userAgent string) (*Rest
 
 	baseURL, _ := url.Parse(apiBaseURL)
 	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Make sure the token is prefixed by "Bot "
+	// see https://github.com/hammerandchisel/discord-api-docs/issues/119
+	if !strings.HasPrefix(token, "Bot ") {
+		token = "Bot " + token
+	}
 
 	return &RestClient{
 		client:    client,
