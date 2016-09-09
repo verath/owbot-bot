@@ -15,11 +15,11 @@ and setting values. That's it.
 
 ## Project Status
 
-Bolt is stable and the API is fixed. Full unit test coverage and randomized
-black box testing are used to ensure database consistency and thread safety.
-Bolt is currently in high-load production environments serving databases as
-large as 1TB. Many companies such as Shopify and Heroku use Bolt-backed
-services every day.
+Bolt is stable, the API is fixed, and the file format is fixed. Full unit
+test coverage and randomized black box testing are used to ensure database
+consistency and thread safety. Bolt is currently in high-load production
+environments serving databases as large as 1TB. Many companies such as
+Shopify and Heroku use Bolt-backed services every day.
 
 ## Table of Contents
 
@@ -209,7 +209,7 @@ and then safely close your transaction if an error is returned. This is the
 recommended way to use Bolt transactions.
 
 However, sometimes you may want to manually start and end your transactions.
-You can use the `Tx.Begin()` function directly but **please** be sure to close
+You can use the `DB.Begin()` function directly but **please** be sure to close
 the transaction.
 
 ```go
@@ -807,6 +807,7 @@ them via pull request.
 
 Below is a list of public, open source projects that use Bolt:
 
+* [BoltDbWeb](https://github.com/evnix/boltdbweb) - A web based GUI for BoltDB files.
 * [Operation Go: A Routine Mission](http://gocode.io) - An online programming game for Golang using Bolt for user accounts and a leaderboard.
 * [Bazil](https://bazil.org/) - A file system that lets your data reside where it is most convenient for it to reside.
 * [DVID](https://github.com/janelia-flyem/dvid) - Added Bolt as optional storage engine and testing it against Basho-tuned leveldb.
@@ -841,7 +842,7 @@ Below is a list of public, open source projects that use Bolt:
 * [Go Report Card](https://goreportcard.com/) - Go code quality report cards as a (free and open source) service.
 * [Boltdb Boilerplate](https://github.com/bobintornado/boltdb-boilerplate) - Boilerplate wrapper around bolt aiming to make simple calls one-liners.
 * [lru](https://github.com/crowdriff/lru) - Easy to use Bolt-backed Least-Recently-Used (LRU) read-through cache with chainable remote stores.
-* [Storm](https://github.com/asdine/storm) - A simple ORM around BoltDB.
+* [Storm](https://github.com/asdine/storm) - Simple and powerful ORM for BoltDB.
 * [GoWebApp](https://github.com/josephspurrier/gowebapp) - A basic MVC web application in Go using BoltDB.
 * [SimpleBolt](https://github.com/xyproto/simplebolt) - A simple way to use BoltDB. Deals mainly with strings.
 * [Algernon](https://github.com/xyproto/algernon) - A HTTP/2 web server with built-in support for Lua. Uses BoltDB as the default database backend.
