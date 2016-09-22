@@ -9,6 +9,7 @@ Overwatch profile data via [SunDwarf/OWAPI](https://github.com/SunDwarf/OWAPI).
 
 ## Running the bot
 First install:
+test
 
 ```
 go get github.com/verath/owbot-bot
