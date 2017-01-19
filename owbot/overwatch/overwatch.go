@@ -1,7 +1,9 @@
 package overwatch
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
@@ -9,12 +11,11 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"context"
 )
 
 const (
 	// The base url of the owapi
-	apiBaseUrl = "https://owapi.net/api/v2/"
+	apiBaseUrl = "https://owapi.net/api/v3/"
 
 	// The number of user stats entries to cache
 	cacheSizeStats = 200
@@ -23,8 +24,24 @@ const (
 	cacheDurationStats = 5 * time.Minute
 )
 
+// Top level response to a u/<battle-tag>/stats request
+type statsResponse struct {
+	KR *regionStats `json:"kr"`
+	EU *regionStats `json:"eu"`
+	US *regionStats `json:"us"`
+}
+
+// Region sub-level part of the stats response
+type regionStats struct {
+	Stats struct {
+		Competitive *UserStats `json:"competitive"`
+	} `json:"stats"`
+}
+
 type UserStats struct {
-	BattleTag    string `json:"battletag"`
+	BattleTag string
+	Region string
+
 	OverallStats struct {
 		CompRank int `json:"comprank"`
 		Games    int `json:"games"`
@@ -45,7 +62,6 @@ type UserStats struct {
 		MedalsSilver float32 `json:"medals_silver"`
 		MedalsBronze float32 `json:"medals_bronze"`
 	} `json:"game_stats"`
-	Region string `json:"region"`
 }
 
 type userStatsCacheEntry struct {
@@ -200,17 +216,29 @@ func (ow *OverwatchClient) GetStats(ctx context.Context, battleTag string) (*Use
 		return userStats, nil
 	}
 
-	path := fmt.Sprintf("u/%s/stats/competitive", battleTag)
+	path := fmt.Sprintf("u/%s/stats", battleTag)
 	req, err := ow.NewRequest(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 
-	userStats := &UserStats{}
-	_, err = ow.Do(req, userStats)
+	res := &statsResponse{}
+	_, err = ow.Do(req, res)
 	if err != nil {
 		return nil, err
 	}
+
+	// Determine the region to use
+	regionStats, regionName := ow.getBestRegion(res)
+	if regionStats == nil || regionStats.Stats.Competitive == nil {
+		return nil, errors.New("Could not find a region with " +
+			"competitive stats for player")
+	}
+
+	// Grab the userStats, also add the battle tag from the request
+	userStats := regionStats.Stats.Competitive
+	userStats.BattleTag = battleTag
+	userStats.Region = regionName
 
 	// Store to cache
 	cacheEntry := userStatsCacheEntry{userStats, time.Now()}
@@ -228,4 +256,35 @@ func (ow *OverwatchClient) getUserStatsFromCache(battleTag string) (*UserStats, 
 		}
 	}
 	return nil, false
+}
+
+// Takes a stats response and returns the "best matching" region.
+// The best match is the region with most played games in. May
+// return nil if all regions are nil.
+func (ow *OverwatchClient) getBestRegion(res *statsResponse) (*regionStats, string) {
+	type region struct {
+		name string
+		stats *regionStats
+	}
+	regions := []region{
+		{"US", res.US},
+		{"EU", res.EU},
+		{"KR", res.KR},
+	}
+	var bestMatch region
+	mostPlayed := 0
+
+	for _, region := range regions {
+		stats := region.stats
+
+		if stats == nil || stats.Stats.Competitive == nil {
+			continue
+		}
+		regionPlayed := stats.Stats.Competitive.OverallStats.Games
+		if regionPlayed > mostPlayed {
+			mostPlayed = regionPlayed
+			bestMatch = region
+		}
+	}
+	return bestMatch.stats, bestMatch.name
 }
