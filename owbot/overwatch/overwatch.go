@@ -49,7 +49,7 @@ type UserStats struct {
 		Losses   int `json:"losses"`
 		Prestige int `json:"prestige"`
 		Wins     int `json:"wins"`
-		WinRate  int `json:"win_Rate"`
+		WinRate  float32 `json:"win_Rate"`
 	} `json:"overall_stats"`
 	GameStats struct {
 		Deaths       float32 `json:"deaths"`
