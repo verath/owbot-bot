@@ -1,4 +1,5 @@
 #OW-Bot 
+
 [![Build Status](https://travis-ci.org/verath/owbot-bot.svg?branch=master)](https://travis-ci.org/verath/owbot-bot)
 [![Code Climate](https://codeclimate.com/github/verath/owbot-bot/badges/gpa.svg)](https://codeclimate.com/github/verath/owbot-bot)
 
@@ -6,6 +7,10 @@ A simple Discord bot, showing Overwatch profile summaries.
 
 Written in go. Discord client heavily inspired by [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo).
 Overwatch profile data via [SunDwarf/OWAPI](https://github.com/SunDwarf/OWAPI).
+
+**Note**: This project was created to learn go. For a "real" project it
+likely makes more sense to explicitly rely on [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo)
+for interacting with the Discord API!
 
 ## Running the bot
 First install:
