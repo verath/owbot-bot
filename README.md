@@ -14,6 +14,9 @@ for interacting with the Discord API!
 
 ## Running the bot
 First install:
+test
+
+more test
 
 ```
 go get github.com/verath/owbot-bot
