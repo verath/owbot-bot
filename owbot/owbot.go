@@ -6,6 +6,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/verath/owbot-bot/owbot/discord"
 	"github.com/verath/owbot-bot/owbot/overwatch"
+	"path/filepath"
 )
 
 var (
@@ -88,7 +89,11 @@ func NewBot(logger *logrus.Logger, db *bolt.DB, botId string, token string) (*Bo
 		botLogger.Info("No db provided, using in-memory user source")
 		userSource = NewMemoryUserSource()
 	} else {
-		botLogger.Info("Using Bolt db user source")
+		path, err := filepath.Abs(db.Path())
+		if err != nil {
+			return nil, err
+		}
+		botLogger.WithField("Path", path).Info("Using Bolt db user source")
 		userSource, err = NewBoltUserSource(logger, db)
 		if err != nil {
 			return nil, err
