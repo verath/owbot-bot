@@ -52,6 +52,7 @@ __**{{ .BattleTag }} (competitive, {{ .Region }})**__
 **Level:** {{ .OverallStats.Level }} +{{ .OverallStats.Prestige }}
 **Rank:** {{ .OverallStats.CompRank }}
 **K/D:** {{ .GameStats.Eliminations -}} / {{- .GameStats.Deaths }}  ({{ .GameStats.KPD }} KPD)
+**Win Rate:** {{ printf "%.2f" .OverallStats.WinRate }}%
 **Matches W/L:** {{ .OverallStats.Wins -}} / {{- .OverallStats.Losses }} ({{ .OverallStats.Games }} total)
 **Medals G/S/B:** {{ .GameStats.MedalsGold -}} / {{- .GameStats.MedalsSilver -}} / {{- .GameStats.MedalsBronze }} ({{ .GameStats.Medals }} total)
 **Time Played:** {{ .GameStats.TimePlayed }} hours
