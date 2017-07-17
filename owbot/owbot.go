@@ -12,10 +12,6 @@ import (
 var (
 	// The url to the project github page
 	GitHubUrl = "https://github.com/verath/owbot-bot"
-
-	// The git revision currently running. This value is set during the build
-	// using '-ldflags "-X github.com/verath/owbot-bot/owbot.GitRevision=..."'
-	GitRevision = ""
 )
 
 // The bot is the main component of the ow-bot. It handles events
@@ -36,7 +32,7 @@ func (bot *Bot) onSessionReady() {
 func (bot *Bot) Start() error {
 	// TODO: Check that we are not started
 
-	bot.logger.WithField("revision", GitRevision).Info("Bot starting, connecting...")
+	bot.logger.Info("Bot starting, connecting...")
 
 	bot.discord.AddReadyHandler(bot.onSessionReady)
 	bot.discord.AddMessageHandler(bot.onChannelMessage)
@@ -73,7 +69,7 @@ func NewBot(logger *logrus.Logger, db *bolt.DB, botId string, token string) (*Bo
 		return nil, err
 	}
 
-	userAgent := fmt.Sprintf("DiscordBot (%s, %s)", GitHubUrl, GitRevision)
+	userAgent := fmt.Sprintf("owbot-bot (%s)", GitHubUrl)
 	discord, err := discord.NewDiscord(logger, botId, token, userAgent)
 	if err != nil {
 		return nil, err

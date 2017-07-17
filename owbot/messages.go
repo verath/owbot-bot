@@ -64,14 +64,11 @@ __**ow-bot (%s)**__
 - **!ow profile <BattleTag>** - Shows Overwatch profile summary
 - **!ow set <BattleTag>** - Sets your BattleTag
 - **!ow set <DiscordUser> <BattleTag>** - Sets the BattleTag of a user
-- **!ow version** - Shows the version of the bot
 - **!ow help** - Shows this message
 
 **<DiscordUser>**: A Discord user mention (@username)
 **<BattleTag>**: A Battle.net BattleTag (username#12345)`),
 	GitHubUrl)
-
-var msgVersion = fmt.Sprintf(`Version %s: %s/commit/%s`, GitRevision, GitHubUrl, GitRevision)
 
 var msgUnknownCommand = `Sorry, but I don't know what you want. Type "!ow help" to show usage help.`
 
@@ -126,8 +123,6 @@ func (bot *Bot) onChannelMessage(chanMessage *discord.Message) {
 		bot.setBattleTag(ctx, args[2:], chanMessage)
 	case "help":
 		bot.showUsage(ctx, args[2:], chanMessage)
-	case "version":
-		bot.showVersion(ctx, args[2:], chanMessage)
 	case "profile":
 		bot.showProfile(ctx, args[2:], chanMessage)
 	default:
@@ -250,10 +245,6 @@ func (bot *Bot) setBattleTag(ctx context.Context, args []string, chanMessage *di
 
 	data := battleTagUpdatedData{MentionId: userId, BattleTag: battleTag}
 	bot.sendTemplateMessage(ctx, chanMessage.ChannelId, tmplBattleTagUpdated, data)
-}
-
-func (bot *Bot) showVersion(ctx context.Context, args []string, chanMessage *discord.Message) {
-	bot.sendMessage(ctx, chanMessage.ChannelId, msgVersion)
 }
 
 func (bot *Bot) showUsage(ctx context.Context, args []string, chanMessage *discord.Message) {
