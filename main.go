@@ -14,39 +14,21 @@ func main() {
 	var (
 		botId   string
 		token   string
-		logFile string
 		dbFile  string
 		debug   bool
 	)
 	flag.StringVar(&botId, "id", "", "The Bot ID of the bot")
 	flag.StringVar(&token, "token", "", "The secret token for the bot")
-	flag.StringVar(&logFile, "logfile", "", "A path to a file for writing logs (default is stdout)")
 	flag.StringVar(&dbFile, "dbfile", "", "A path to a file to be used for bolt database")
 	flag.BoolVar(&debug, "debug", false, "Set to true to log debug messages")
 	flag.Parse()
 
-	// TODO: This is not a great solution for required config...
 	if botId == "" || token == "" {
 		println("Both Bot ID and Bot Token is required")
 		os.Exit(-1)
 	}
-
 	// Create a logrus instance (logger)
 	logger := logrus.New()
-	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"module":   "main",
-				"filename": logFile,
-				"error":    err,
-			}).Fatal("Could not open file for logging")
-		}
-		logger.Formatter = &logrus.TextFormatter{ForceColors: true}
-		logger.Out = f
-	}
-
-	// If debug is true, log debug messages
 	if debug {
 		logger.Level = logrus.DebugLevel
 	}
