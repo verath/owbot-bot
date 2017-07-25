@@ -1,105 +1,74 @@
 package owbot
 
 import (
-	"fmt"
+	"context"
 	"github.com/Sirupsen/logrus"
-	"github.com/boltdb/bolt"
-	"github.com/verath/owbot-bot/owbot/discord"
-	"github.com/verath/owbot-bot/owbot/overwatch"
-	"path/filepath"
+	"github.com/bwmarrin/discordgo"
+	"github.com/pkg/errors"
+	"github.com/verath/owbot-bot/owbot/owapi"
+	"strings"
 )
 
 var (
 	// The url to the project github page
-	GitHubUrl = "https://github.com/verath/owbot-bot"
+	GitHubURL = "https://github.com/verath/owbot-bot"
 )
 
-// The bot is the main component of the ow-bot. It handles events
-// from Discord and uses the overwatch client to respond to queries.
+// Bot is the main component of the ow-bot. It handles events
+// from Discord and uses the owapi client to respond to queries.
 type Bot struct {
-	logger     *logrus.Entry
-	overwatch  *overwatch.OverwatchClient
-	discord    *discord.DiscordClient
-	userSource UserSource
+	logger         *logrus.Logger
+	discordSession *discordgo.Session
+	owAPIClient    *owapi.Client
+	userSource     UserSource
 }
 
-func (bot *Bot) onSessionReady() {
-	bot.logger.Info("onSessionReady, setting status message")
-	bot.discord.UpdateStatus(-1, "!ow help")
-}
-
-// Starts the bot, connects to Discord and starts listening for events
-func (bot *Bot) Start() error {
-	// TODO: Check that we are not started
-
-	bot.logger.Info("Bot starting, connecting...")
-
-	bot.discord.AddReadyHandler(bot.onSessionReady)
-	bot.discord.AddMessageHandler(bot.onChannelMessage)
-
-	if err := bot.discord.Connect(); err != nil {
-		bot.logger.WithField("error", err).Error("Could not connect to Discord")
-		return err
+func New(logger *logrus.Logger, discordToken string, userSource UserSource) (*Bot, error) {
+	// Make sure the token is prefixed by "Bot "
+	// see https://github.com/hammerandchisel/discord-api-docs/issues/119
+	if !strings.HasPrefix(discordToken, "Bot ") {
+		discordToken = "Bot " + discordToken
 	}
-	bot.logger.Debug("Connected to Discord")
-
-	return nil
-}
-
-// Stops the bot, disconnecting from Discord
-func (bot *Bot) Stop() error {
-	// TODO: Check that we are started
-
-	bot.logger.Info("Bot stopping, disconnecting...")
-	if err := bot.discord.Disconnect(); err != nil {
-		bot.logger.WithField("error", err).Error("Failed to disconnect from Discord")
-		return err
-	}
-	bot.logger.Info("Disconnected from Discord")
-
-	// TODO: Remove added handlers
-
-	return nil
-}
-
-// Creates a new bot.
-func NewBot(logger *logrus.Logger, db *bolt.DB, botId string, token string) (*Bot, error) {
-	overwatch, err := overwatch.NewOverwatchClient(logger)
+	discordSession, err := discordgo.New(discordToken)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Error creating discordgo session")
 	}
-
-	userAgent := fmt.Sprintf("owbot-bot (%s)", GitHubUrl)
-	discord, err := discord.NewDiscord(logger, botId, token, userAgent)
+	owAPIClient, err := owapi.NewClient(logger)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Error creating owapi client")
 	}
-
-	// Store the logger as an Entry, adding the module to all log calls
-	botLogger := logger.WithField("module", "main")
-
-	// If we have a bolt database, use the BoltUserSource. Else fallback
-	// to an in memory user source
-	var userSource UserSource
-	if db == nil {
-		botLogger.Info("No db provided, using in-memory user source")
-		userSource = NewMemoryUserSource()
-	} else {
-		path, err := filepath.Abs(db.Path())
-		if err != nil {
-			return nil, err
-		}
-		botLogger.WithField("Path", path).Info("Using Bolt db user source")
-		userSource, err = NewBoltUserSource(logger, db)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return &Bot{
-		logger:     botLogger,
-		discord:    discord,
-		overwatch:  overwatch,
-		userSource: userSource,
+		logger:         logger,
+		discordSession: discordSession,
+		owAPIClient:    owAPIClient,
+		userSource:     userSource,
 	}, nil
+}
+
+func (bot *Bot) Run(ctx context.Context) error {
+	defer bot.discordSession.AddHandler(bot.onReadyHandler)()
+	defer bot.discordSession.AddHandler(bot.onMessageCreateHandler)()
+	if err := bot.discordSession.Open(); err != nil {
+		return errors.Wrap(err, "Error connecting to Discord")
+	}
+	<-ctx.Done()
+	if err := bot.discordSession.Close(); err != nil {
+		return errors.Wrap(err, "Error closing Discord connection")
+	}
+	return ctx.Err()
+}
+
+func (bot *Bot) onReadyHandler(s *discordgo.Session, m *discordgo.Ready) {
+	bot.logger.Info("On ready, setting status message")
+	err := bot.discordSession.UpdateStatus(-1, "!ow help")
+	if err != nil {
+		bot.logger.Errorf("Failed setting status message: %+v", err)
+	}
+}
+
+func (bot *Bot) onMessageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
+	err := bot.handleDiscordMessage(m.Message)
+	if err != nil {
+		bot.logger.Errorf("Error handling discord message: %+v", err)
+	}
 }

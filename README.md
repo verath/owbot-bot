@@ -5,12 +5,8 @@
 
 A simple Discord bot, showing Overwatch profile summaries.
 
-Written in go. Discord client heavily inspired by [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo).
+Written in go. Discord client uses [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo).
 Overwatch profile data via [SunDwarf/OWAPI](https://github.com/SunDwarf/OWAPI).
-
-**Note**: This project was created to learn go. For a "real" project it
-likely makes more sense to explicitly rely on [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo)
-for interacting with the Discord API!
 
 ## Running the bot
 First install:
@@ -20,10 +16,10 @@ go get github.com/verath/owbot-bot
 go install github.com/verath/owbot-bot
 ```
 
-Then run it, supplying a Discord Bot ID and a Bot Token:
+Then run it, supplying a Discord bot token:
 
 ```
-owbot-bot -id "BOT_ID" -token "BOT_TOKEN"
+owbot-bot -token "BOT_TOKEN"
 ```
 
 ## Adding the bot to a channel

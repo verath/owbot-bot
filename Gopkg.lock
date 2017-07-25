@@ -14,24 +14,44 @@
   version = "v1.3.1"
 
 [[projects]]
+  name = "github.com/bwmarrin/discordgo"
+  packages = ["."]
+  revision = "0993a94b4e1c3291bed2047f583f34792269355c"
+  version = "v0.16.0"
+
+[[projects]]
   name = "github.com/gorilla/websocket"
   packages = ["."]
   revision = "ea4d1f681babbce9545c9c5f3d5194a789c89f5b"
   version = "v1.2.0"
 
 [[projects]]
+  branch = "master"
   name = "github.com/hashicorp/golang-lru"
   packages = [".","simplelru"]
-  revision = "a0d98a5f288019575c6d1f4bb1573fef2d1fcdc4"
+  revision = "0a025b7e63adc15a622f29b0b2c4c3848243bbf6"
 
 [[projects]]
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
+  version = "v0.8.0"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = ["nacl/secretbox","poly1305","salsa20/salsa"]
+  revision = "6914964337150723782436d56b3f21610a74ce7b"
+
+[[projects]]
+  branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "62bee037599929a6e9146f29d10dd5208c43507d"
+  revision = "14ac33bf8474b62c65cae263af2e4d3b543cc699"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c9f7c0edb5e61f27312eb6df1d3b66ef51ccf2f55559d5406bd5f6b0932ff723"
+  inputs-digest = "b8c638c97cfb80cc5b0febd88688cd06c7a39c3ecd197982d7490e133cf1b8c8"
   solver-name = "gps-cdcl"
   solver-version = 1

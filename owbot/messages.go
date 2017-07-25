@@ -5,7 +5,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/Sirupsen/logrus"
-	"github.com/verath/owbot-bot/owbot/discord"
+	"github.com/bwmarrin/discordgo"
+	"github.com/pkg/errors"
 	"regexp"
 	"strings"
 	"text/template"
@@ -18,19 +19,19 @@ const (
 )
 
 type invalidBattleTagData struct {
-	MentionId string
+	MentionID string
 	BattleTag string
 }
 
 var tmplInvalidBattleTag = template.Must(template.New("InvalidBattleTag").
-	Parse(`<@{{ .MentionId }}>: "{{ .BattleTag }}" is not a valid BattleTag`))
+	Parse(`<@{{ .MentionID }}>: "{{ .BattleTag }}" is not a valid BattleTag`))
 
 type unknownDiscordUserData struct {
-	MentionId string
+	MentionID string
 }
 
 var tmplUnknownDiscordUser = template.Must(template.New("UnknownDiscordUser").
-	Parse(`No BattleTag for <@{{ .MentionId }}>, use "!ow set <@{{ .MentionId }}> <BattleTag>" to set one`))
+	Parse(`No BattleTag for <@{{ .MentionID }}>, use "!ow set <@{{ .MentionID }}> <BattleTag>" to set one`))
 
 type fetchErrorData struct {
 	BattleTag string
@@ -40,12 +41,12 @@ var tmplFetchError = template.Must(template.New("FetchError").
 	Parse(`Unable to fetch competitive stats for "{{ .BattleTag }}"`))
 
 type battleTagUpdatedData struct {
-	MentionId string
+	MentionID string
 	BattleTag string
 }
 
 var tmplBattleTagUpdated = template.Must(template.New("BattleTagUpdated").
-	Parse(`BattleTag for <@{{ .MentionId }}> is now "{{ .BattleTag }}"`))
+	Parse(`BattleTag for <@{{ .MentionID }}> is now "{{ .BattleTag }}"`))
 
 var tmplOverwatchProfile = template.Must(template.New("OverwatchProfile").Parse(strings.TrimSpace(`
 __**{{ .BattleTag }} (competitive, {{ .Region }})**__
@@ -69,7 +70,7 @@ __**ow-bot (%s)**__
 
 **<DiscordUser>**: A Discord user mention (@username)
 **<BattleTag>**: A Battle.net BattleTag (username#12345)`),
-	GitHubUrl)
+	GitHubURL)
 
 var msgUnknownCommand = `Sorry, but I don't know what you want. Type "!ow help" to show usage help.`
 
@@ -80,33 +81,28 @@ var regexBattleTag = regexp.MustCompile(`^\w{3,12}#\d+$`)
 // https://discordapp.com/developers/docs/resources/channel#message-formatting
 var regexMention = regexp.MustCompile(`^<@!?(\d+)>$`)
 
-func (bot *Bot) sendMessage(ctx context.Context, channelId string, msg string) {
-	err := bot.discord.CreateMessage(ctx, channelId, msg)
-	respLogEntry := bot.logger.WithFields(logrus.Fields{"channelId": channelId, "message": msg})
+func (bot *Bot) sendMessage(ctx context.Context, channelID string, msg string) error {
+	_, err := bot.discordSession.ChannelMessageSend(channelID, msg)
 	if err != nil {
-		respLogEntry.WithError(err).Warn("Failed sending message")
-	} else {
-		respLogEntry.Debug("Sent message")
+		return errors.Wrapf(err, "Failed sending message '%s' to channelID '%s'", msg, channelID)
 	}
+	bot.logger.WithFields(logrus.Fields{"channelID": channelID, "message": msg}).Debug("Sent message")
+	return nil
 }
 
-func (bot *Bot) sendTemplateMessage(ctx context.Context, channelId string, template *template.Template, data interface{}) {
+func (bot *Bot) sendTemplateMessage(ctx context.Context, channelID string, template *template.Template, data interface{}) error {
 	var msg bytes.Buffer
 	err := template.Execute(&msg, data)
 	if err != nil {
-		bot.logger.WithFields(logrus.Fields{
-			"error":    err,
-			"template": template.Name,
-		}).Error("Failed executing template")
-		return
+		return errors.Wrapf(err, "Failed executing template: %s", template.Name)
 	}
-	bot.sendMessage(ctx, channelId, msg.String())
+	return bot.sendMessage(ctx, channelID, msg.String())
 }
 
-func (bot *Bot) onChannelMessage(chanMessage *discord.Message) {
+func (bot *Bot) handleDiscordMessage(chanMessage *discordgo.Message) error {
 	args := strings.Split(chanMessage.Content, " ")
 	if args[0] != "!ow" {
-		return
+		return nil
 	}
 
 	// Set up a context for this request
@@ -121,133 +117,121 @@ func (bot *Bot) onChannelMessage(chanMessage *discord.Message) {
 
 	switch args[1] {
 	case "set":
-		bot.setBattleTag(ctx, args[2:], chanMessage)
+		return bot.setBattleTag(ctx, args[2:], chanMessage)
 	case "help":
-		bot.showUsage(ctx, args[2:], chanMessage)
+		return bot.showUsage(ctx, args[2:], chanMessage)
 	case "profile":
-		bot.showProfile(ctx, args[2:], chanMessage)
+		return bot.showProfile(ctx, args[2:], chanMessage)
 	default:
-		bot.showProfile(ctx, args[1:], chanMessage)
+		return bot.showProfile(ctx, args[1:], chanMessage)
 	}
 }
 
-func (bot *Bot) showProfile(ctx context.Context, args []string, chanMessage *discord.Message) {
-	chanId := chanMessage.ChannelId
+func (bot *Bot) showProfile(ctx context.Context, args []string, chanMessage *discordgo.Message) error {
+	channelID := chanMessage.ChannelID
 
 	var battleTag string
 	if len(args) == 1 && regexBattleTag.MatchString(args[0]) {
 		// !ow profile <BattleTag>
 		battleTag = args[0]
 	} else {
-		var discordId string
+		var discordID string
 		if len(args) == 0 {
 			// !ow profile
-			discordId = chanMessage.Author.Id
+			discordID = chanMessage.Author.ID
 		} else if len(args) == 1 && regexMention.MatchString(args[0]) {
 			// !ow profile @username
 			matches := regexMention.FindStringSubmatch(args[0])
-			discordId = matches[1]
+			discordID = matches[1]
 		} else {
-			bot.sendMessage(ctx, chanId, msgUnknownCommand)
-			return
+			return bot.sendMessage(ctx, channelID, msgUnknownCommand)
 		}
 
-		user, err := bot.userSource.Get(discordId)
+		user, err := bot.userSource.Get(discordID)
 		if err != nil {
-			bot.logger.WithField("error", err).Error("Failed getting user from source")
-			return
+			return errors.Wrapf(err, "Could not get user '%s' from data source", discordID)
 		}
 		if user == nil {
-			data := unknownDiscordUserData{MentionId: discordId}
-			bot.sendTemplateMessage(ctx, chanId, tmplUnknownDiscordUser, data)
-			return
+			data := unknownDiscordUserData{MentionID: discordID}
+			return bot.sendTemplateMessage(ctx, channelID, tmplUnknownDiscordUser, data)
 		}
 		battleTag = user.BattleTag
 	}
 
 	battleTagFields := bot.logger.WithField("battleTag", battleTag)
-	stats, err := bot.overwatch.GetStats(ctx, battleTag)
+	stats, err := bot.owAPIClient.GetStats(ctx, battleTag)
 	if err != nil {
 		battleTagFields.WithError(err).Warn("Could not get Overwatch stats")
 		data := fetchErrorData{BattleTag: battleTag}
-		bot.sendTemplateMessage(ctx, chanId, tmplFetchError, data)
+		return bot.sendTemplateMessage(ctx, channelID, tmplFetchError, data)
 	} else {
 		battleTagFields.Debug("Successfully got Overwatch stats")
-		bot.sendTemplateMessage(ctx, chanId, tmplOverwatchProfile, stats)
+		return bot.sendTemplateMessage(ctx, channelID, tmplOverwatchProfile, stats)
 	}
-
 }
 
-func (bot *Bot) setBattleTag(ctx context.Context, args []string, chanMessage *discord.Message) {
+func (bot *Bot) setBattleTag(ctx context.Context, args []string, chanMessage *discordgo.Message) error {
 	if len(args) == 0 {
-		bot.sendMessage(ctx, chanMessage.ChannelId, msgUnknownCommand)
-		return
+		return bot.sendMessage(ctx, chanMessage.ChannelID, msgUnknownCommand)
 	}
 
-	var userId string
+	var userID string
 	if len(args) >= 2 {
 		// !ow <@user> tag#123
 		userMention := args[0]
 		args = args[1:]
 		if matches := regexMention.FindStringSubmatch(userMention); matches != nil {
-			// To validate the userId, we make sure the id we extracted is
+			// To validate the userID, we make sure the id we extracted is
 			// also included in the Mentioned users of the discord message
 			for _, user := range chanMessage.Mentions {
-				if user.Id == matches[1] {
-					userId = matches[1]
+				if user.ID == matches[1] {
+					userID = matches[1]
 					break
 				}
 			}
 		}
-		if userId == "" {
-			bot.sendMessage(ctx, chanMessage.ChannelId, msgUnknownCommand)
-			return
+		if userID == "" {
+			return bot.sendMessage(ctx, chanMessage.ChannelID, msgUnknownCommand)
 		}
 	} else {
-		userId = chanMessage.Author.Id
+		userID = chanMessage.Author.ID
 	}
 
 	// If we get here, we should only have to handle !ow battleTag#123
 	// as the optional user mention is handled above
 	if len(args) > 1 {
-		bot.sendMessage(ctx, chanMessage.ChannelId, msgUnknownCommand)
-		return
+		return bot.sendMessage(ctx, chanMessage.ChannelID, msgUnknownCommand)
 	}
 
 	// Make sure the argument is a "valid" battleTag
 	battleTag := args[0]
 	if !regexBattleTag.MatchString(battleTag) {
-		data := invalidBattleTagData{MentionId: chanMessage.Author.Id, BattleTag: battleTag}
-		bot.sendTemplateMessage(ctx, chanMessage.ChannelId, tmplInvalidBattleTag, data)
-		return
+		data := invalidBattleTagData{MentionID: chanMessage.Author.ID, BattleTag: battleTag}
+		return bot.sendTemplateMessage(ctx, chanMessage.ChannelID, tmplInvalidBattleTag, data)
 	}
 
 	// Only allowed to update a user object if the author of the message
 	// is the owner, or if the user has not been set by the owner yet
-	currUser, err := bot.userSource.Get(userId)
+	currUser, err := bot.userSource.Get(userID)
 	if err != nil {
-		bot.logger.WithError(err).WithField("userId", userId).Error("Failed getting user to datasource")
-		return
+		return errors.Wrapf(err, "Could not get userID '%s' from user source", userID)
 	}
-	if currUser != nil && currUser.Id != chanMessage.Author.Id && currUser.CreatedBy == currUser.Id {
+	if currUser != nil && currUser.ID != chanMessage.Author.ID && currUser.CreatedBy == currUser.ID {
 		bot.logger.WithFields(logrus.Fields{
 			"currUser": currUser,
-			"authorId": chanMessage.Author.Id,
+			"authorID": chanMessage.Author.ID,
 		}).Debug("Not allowed to change data set by owner")
-		return
+		return nil
 	}
-
 	// Update the user object and store it
-	user := &User{Id: userId, BattleTag: battleTag, CreatedBy: chanMessage.Author.Id}
+	user := &User{ID: userID, BattleTag: battleTag, CreatedBy: chanMessage.Author.ID}
 	if err := bot.userSource.Save(user); err != nil {
-		bot.logger.WithError(err).WithField("user", user).Error("Failed saving user to datasource")
-		return
+		return errors.Wrapf(err, "Failed saving user (%+v) to data source", user)
 	}
-
-	data := battleTagUpdatedData{MentionId: userId, BattleTag: battleTag}
-	bot.sendTemplateMessage(ctx, chanMessage.ChannelId, tmplBattleTagUpdated, data)
+	data := battleTagUpdatedData{MentionID: userID, BattleTag: battleTag}
+	return bot.sendTemplateMessage(ctx, chanMessage.ChannelID, tmplBattleTagUpdated, data)
 }
 
-func (bot *Bot) showUsage(ctx context.Context, args []string, chanMessage *discord.Message) {
-	bot.sendMessage(ctx, chanMessage.ChannelId, msgUsage)
+func (bot *Bot) showUsage(ctx context.Context, args []string, chanMessage *discordgo.Message) error {
+	return bot.sendMessage(ctx, chanMessage.ChannelID, msgUsage)
 }

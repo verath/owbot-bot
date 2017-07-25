@@ -5,13 +5,14 @@ import (
 	"errors"
 	"github.com/Sirupsen/logrus"
 	"github.com/boltdb/bolt"
+	"io"
 )
 
 // A user is a mapping between a Discord user id and
 // a battleTag
 type User struct {
 	// The Discord id (snowflake) of the user
-	Id string
+	ID string
 	// The Battle.net BattleTag for the user
 	BattleTag string
 	// The Discord id (snowflake) of the user that last
@@ -23,9 +24,10 @@ type User struct {
 
 // A simple interface for a data source of users
 type UserSource interface {
+	io.Closer
 	// Returns the user for the provided Discord user id, or nil
 	// if no such user exist.
-	Get(userId string) (*User, error)
+	Get(userID string) (*User, error)
 
 	// Stores a user to the data source
 	Save(user *User) error
@@ -42,8 +44,8 @@ func NewMemoryUserSource() *MemoryUserSource {
 	}
 }
 
-func (s *MemoryUserSource) Get(userId string) (*User, error) {
-	user, _ := s.data[userId]
+func (s *MemoryUserSource) Get(userID string) (*User, error) {
+	user, _ := s.data[userID]
 	if user == nil {
 		return user, nil
 	} else {
@@ -56,7 +58,11 @@ func (s *MemoryUserSource) Get(userId string) (*User, error) {
 func (s *MemoryUserSource) Save(user *User) error {
 	userCopy := new(User)
 	*userCopy = *user
-	s.data[userCopy.Id] = userCopy
+	s.data[userCopy.ID] = userCopy
+	return nil
+}
+
+func (s *MemoryUserSource) Close() error {
 	return nil
 }
 
@@ -97,11 +103,11 @@ func (s *BoltUserSource) mustGetBucket(tx *bolt.Tx, name []byte) *bolt.Bucket {
 	return bucket
 }
 
-func (s *BoltUserSource) Get(userId string) (*User, error) {
+func (s *BoltUserSource) Get(userID string) (*User, error) {
 	var user *User
 	err := s.db.View(func(tx *bolt.Tx) error {
 		bucket := s.mustGetBucket(tx, bucketUsers)
-		v := bucket.Get([]byte(userId))
+		v := bucket.Get([]byte(userID))
 		if v == nil {
 			return nil
 		}
@@ -121,6 +127,10 @@ func (s *BoltUserSource) Save(user *User) error {
 		if err != nil {
 			return err
 		}
-		return bucket.Put([]byte(user.Id), data)
+		return bucket.Put([]byte(user.ID), data)
 	})
+}
+
+func (s *BoltUserSource) Close() error {
+	return s.db.Close()
 }
