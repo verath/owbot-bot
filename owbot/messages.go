@@ -100,7 +100,7 @@ func (bot *Bot) sendTemplateMessage(ctx context.Context, channelID string, templ
 }
 
 func (bot *Bot) handleDiscordMessage(chanMessage *discordgo.Message) error {
-	args := strings.Split(chanMessage.Content, " ")
+	args := strings.Fields(chanMessage.Content)
 	if args[0] != "!ow" {
 		return nil
 	}
