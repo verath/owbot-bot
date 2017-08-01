@@ -26,7 +26,7 @@ workflows:
   build_workflow:
     jobs:
       - build
-      - docker_publish
+      - docker_publish:
           requires:
             - build
           filters:
