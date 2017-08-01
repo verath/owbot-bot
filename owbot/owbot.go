@@ -2,7 +2,7 @@ package owbot
 
 import (
 	"context"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pkg/errors"
 	"github.com/verath/owbot-bot/owbot/owapi"

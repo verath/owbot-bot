@@ -3,7 +3,7 @@ package owbot
 import (
 	"encoding/json"
 	"errors"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/boltdb/bolt"
 	"io"
 )

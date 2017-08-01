@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/verath/owbot-bot/owbot"
