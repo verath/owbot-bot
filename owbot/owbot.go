@@ -2,16 +2,28 @@ package owbot
 
 import (
 	"context"
-	"github.com/sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/verath/owbot-bot/owbot/owapi"
 	"strings"
+	"time"
 )
 
-var (
+const (
 	// The url to the project github page
 	GitHubURL = "https://github.com/verath/owbot-bot"
+
+	// statusMessageHello is an initial message set when the
+	// bot is first ready.
+	statusMessageHello = "Hello!"
+	// statusMessageHelloDuration determines for how long the
+	// hello message should be displayed before showing the
+	// default message
+	statusMessageHelloDuration = 5 * time.Minute
+	// statusMessageDefault is the default status message of
+	// the bot, displayed as the "game playing" in Discord.
+	statusMessageDefault = "!ow help"
 )
 
 // Bot is the main component of the ow-bot. It handles events
@@ -59,8 +71,14 @@ func (bot *Bot) Run(ctx context.Context) error {
 }
 
 func (bot *Bot) onReadyHandler(s *discordgo.Session, m *discordgo.Ready) {
-	bot.logger.Info("On ready, setting status message")
-	err := bot.discordSession.UpdateStatus(-1, "!ow help")
+	bot.logger.Info("On ready, setting hello status message")
+	err := s.UpdateStatus(-1, statusMessageHello)
+	if err != nil {
+		bot.logger.Errorf("Failed setting status message: %+v", err)
+	}
+	<-time.After(statusMessageHelloDuration)
+	bot.logger.Info("On ready, setting default status message")
+	err = s.UpdateStatus(-1, statusMessageDefault)
 	if err != nil {
 		bot.logger.Errorf("Failed setting status message: %+v", err)
 	}
