@@ -1,0 +1,34 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.8
+    working_directory: /go/src/github.com/verath/owbot-bot
+    steps:
+      - checkout
+      - run: go build -v
+      - run: go vet $(go list | grep -v vendor)
+      - run: go test -v -race -timeout 30s $(go list | grep -v vendor)
+  docker_publish:
+    docker:
+      - image: docker:stable
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Publish verath/owbot-bot:latest docker image
+          command: |
+            docker build --pull -t verath/owbot-bot .
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            docker push verath/owbot-bot
+workflows:
+  version: 2
+  build_workflow:
+    jobs:
+      - build
+      - docker_publish
+          requires:
+            - build
+          filters:
+            branches:
+              only: master

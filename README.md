@@ -1,6 +1,6 @@
 # OW-Bot 
 
-[![Build Status](https://travis-ci.org/verath/owbot-bot.svg?branch=master)](https://travis-ci.org/verath/owbot-bot)
+[![CircleCI](https://circleci.com/gh/verath/owbot-bot.svg?style=svg)](https://circleci.com/gh/verath/owbot-bot)
 [![Code Climate](https://codeclimate.com/github/verath/owbot-bot/badges/gpa.svg)](https://codeclimate.com/github/verath/owbot-bot)
 
 A simple Discord bot, showing Overwatch profile summaries.
