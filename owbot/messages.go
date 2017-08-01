@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"regexp"
 	"strings"
 	"text/template"
@@ -25,6 +25,13 @@ type invalidBattleTagData struct {
 
 var tmplInvalidBattleTag = template.Must(template.New("InvalidBattleTag").
 	Parse(`<@{{ .MentionID }}>: "{{ .BattleTag }}" is not a valid BattleTag`))
+
+type cannotOverrideOwnerData struct {
+	MentionID string
+}
+
+var tmplCannotOverrideOwner = template.Must(template.New("CannotOverrideOwner").
+	Parse(`<@{{ .MentionID }}>: Cannot change BattleTag set by the user themselves`))
 
 type unknownDiscordUserData struct {
 	MentionID string
@@ -221,7 +228,8 @@ func (bot *Bot) setBattleTag(ctx context.Context, args []string, chanMessage *di
 			"currUser": currUser,
 			"authorID": chanMessage.Author.ID,
 		}).Debug("Not allowed to change data set by owner")
-		return nil
+		data := cannotOverrideOwnerData{MentionID: chanMessage.Author.ID}
+		return bot.sendTemplateMessage(ctx, chanMessage.ChannelID, tmplCannotOverrideOwner, data)
 	}
 	// Update the user object and store it
 	user := &User{ID: userID, BattleTag: battleTag, CreatedBy: chanMessage.Author.ID}
