@@ -1,8 +1,14 @@
+# Dockerfile for the owbot-bot.COPY
+#
+# docker build . -t vearth/owbot-bot
+
 FROM golang:1.8-alpine
 
 COPY . /go/src/github.com/verath/owbot-bot
 
-RUN go install github.com/verath/owbot-bot
+ARG GIT_REVISION="master"
+
+RUN go install -ldflags "-X github.com/verath/owbot-bot/owbot.gitRevision=${GIT_REVISION}" github.com/verath/owbot-bot
 
 RUN rm -rf /go/src
 

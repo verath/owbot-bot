@@ -12,7 +12,7 @@ import (
 
 const (
 	// The url to the project github page
-	GitHubURL = "https://github.com/verath/owbot-bot"
+	gitHubURL = "https://github.com/verath/owbot-bot"
 
 	// statusMessageHello is an initial message set when the
 	// bot is first ready.
@@ -25,6 +25,10 @@ const (
 	// the bot, displayed as the "game playing" in Discord.
 	statusMessageDefault = "!ow help"
 )
+
+// The git revision of the bot. The default value is overridden via:
+// -ldflags during build.
+var gitRevision = "master"
 
 // Bot is the main component of the ow-bot. It handles events
 // from Discord and uses the owapi client to respond to queries.

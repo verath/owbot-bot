@@ -77,7 +77,11 @@ __**ow-bot (%s)**__
 
 **<DiscordUser>**: A Discord user mention (@username)
 **<BattleTag>**: A Battle.net BattleTag (username#12345)`),
-	GitHubURL)
+	gitHubURL)
+
+var msgVersion = fmt.Sprintf(strings.TrimSpace(`
+Version: %s`),
+	gitHubURL+"/commit/"+gitRevision)
 
 var msgUnknownCommand = `Sorry, but I don't know what you want. Type "!ow help" to show usage help.`
 
@@ -129,6 +133,8 @@ func (bot *Bot) handleDiscordMessage(chanMessage *discordgo.Message) error {
 		return bot.showUsage(ctx, args[2:], chanMessage)
 	case "profile":
 		return bot.showProfile(ctx, args[2:], chanMessage)
+	case "version":
+		return bot.showVersion(ctx, args[2:], chanMessage)
 	default:
 		return bot.showProfile(ctx, args[1:], chanMessage)
 	}
@@ -238,6 +244,10 @@ func (bot *Bot) setBattleTag(ctx context.Context, args []string, chanMessage *di
 	}
 	data := battleTagUpdatedData{MentionID: userID, BattleTag: battleTag}
 	return bot.sendTemplateMessage(ctx, chanMessage.ChannelID, tmplBattleTagUpdated, data)
+}
+
+func (bot *Bot) showVersion(ctx context.Context, args []string, chanMessage *discordgo.Message) error {
+	return bot.sendMessage(ctx, chanMessage.ChannelID, msgVersion)
 }
 
 func (bot *Bot) showUsage(ctx context.Context, args []string, chanMessage *discordgo.Message) error {
