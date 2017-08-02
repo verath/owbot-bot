@@ -36,6 +36,7 @@ jobs:
             gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
             gcloud config set project "owbot-bot"
             gcloud config set compute/zone "us-west1-a"
+            ssh-keygen -f ~/.ssh/google_compute_engine -N ""
       - run:
           name: Upload and execute run_owbot.sh script on "owbot" GCE instance
           command: |
