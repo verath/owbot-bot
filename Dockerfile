@@ -8,4 +8,6 @@ RUN rm -rf /go/src
 
 VOLUME /db
 
+STOPSIGNAL SIGINT
+
 ENTRYPOINT ["owbot-bot", "-dbfile", "/db/owbot.boltdb"]
