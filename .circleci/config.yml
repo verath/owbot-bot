@@ -9,6 +9,7 @@ jobs:
       - run: go build -v
       - run: go vet $(go list | grep -v vendor)
       - run: go test -v -race -timeout 30s $(go list | grep -v vendor)
+
   docker_publish:
     docker:
       - image: docker:stable
@@ -21,6 +22,26 @@ jobs:
             docker build --pull -t verath/owbot-bot .
             docker login -u $DOCKER_USER -p $DOCKER_PASS
             docker push verath/owbot-bot
+
+  gce_deploy:
+    docker:
+      - image: google/cloud-sdk:alpine
+    working_directory: /go/src/github.com/verath/owbot-bot
+    steps:
+      - checkout
+      - run:
+          name: gcloud CLI auth
+          command: |
+            echo $GCLOUD_SERVICE_KEY | base64 --decode --ignore-garbage > ${HOME}/gcloud-service-key.json
+            gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
+            gcloud config set project "owbot-bot"
+            gcloud config set compute/zone "us-west1-a"
+      - run:
+          name: Upload and execute run_owbot.sh script on "owbot" GCE instance
+          command: |
+            gcloud compute scp scripts/run_owbot.sh owbot:~/run_owbot.sh
+            gcloud compute ssh owbot --command "DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN} bash ./run_owbot.sh"
+
 workflows:
   version: 2
   build_workflow:
@@ -29,6 +50,12 @@ workflows:
       - docker_publish:
           requires:
             - build
+          filters:
+            branches:
+              only: master
+      - gce_deploy:
+          requires:
+            - docker_publish
           filters:
             branches:
               only: master
