@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/sirupsen/logrus"
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/verath/owbot-bot/owbot"
 	"os"
 	"os/signal"
@@ -15,17 +15,21 @@ import (
 
 func main() {
 	var (
-		debug  bool
-		token  string
-		dbFile string
+		debug   bool
+		logJSON bool
+		token   string
+		dbFile  string
 	)
 	flag.BoolVar(&debug, "debug", false, "Optional. Enables logging of debug messages.")
+	flag.BoolVar(&logJSON, "logjson", false, "Changes the log format to output logs as json")
 	flag.StringVar(&token, "token", "", "The secret discord token for the bot.")
 	flag.StringVar(&dbFile, "dbfile", "", "Optional. Path to a file to be used for bolt database. ")
 	flag.Parse()
 
 	logger := logrus.New()
-	logger.Formatter = &logrus.TextFormatter{}
+	if logJSON {
+		logger.Formatter = &logrus.JSONFormatter{}
+	}
 	if debug {
 		logger.Level = logrus.DebugLevel
 	}
