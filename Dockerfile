@@ -1,4 +1,4 @@
-# Dockerfile for the owbot-bot.COPY
+# Dockerfile for owbot-bot
 #
 # docker build . -t vearth/owbot-bot
 
