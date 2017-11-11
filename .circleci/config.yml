@@ -18,7 +18,7 @@ jobs:
       - run:
           name: Publish verath/owbot-bot:latest docker image
           command: |
-            docker build --pull --build-arg GIT_REVISION=${CIRCLE_SHA1} -t verath/owbot-bot .
+            docker build --pull --build-arg GIT_REVISION=${CIRCLE_SHA1} -t verath/owbot-bot:latest -t verath/owbot-bot:${CIRCLE_SHA1} .
             docker login -u $DOCKER_USER -p $DOCKER_PASS
             docker push verath/owbot-bot
 workflows:
