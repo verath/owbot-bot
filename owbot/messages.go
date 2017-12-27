@@ -56,7 +56,7 @@ var tmplBattleTagUpdated = template.Must(template.New("BattleTagUpdated").
 	Parse(`BattleTag for <@{{ .MentionID }}> is now "{{ .BattleTag }}"`))
 
 var tmplOverwatchProfile = template.Must(template.New("OverwatchProfile").Parse(strings.TrimSpace(`
-__**{{ .BattleTag }} (competitive, {{ .Region }})**__
+__**{{ .BattleTag }} (competitive)**__
 **Level:** {{ .OverallStats.Level }} +{{ .OverallStats.Prestige }}
 **Rank:** {{ .OverallStats.CompRank }}
 **K/D:** {{ .GameStats.Eliminations -}} / {{- .GameStats.Deaths }}  ({{ .GameStats.KPD }} KPD)

@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"net/http"
 	"net/url"
 	"strings"
@@ -233,7 +233,8 @@ func (ow *Client) GetStats(ctx context.Context, battleTag string) (*UserStats, e
 
 	// Grab the userStats, also add the battle tag from the request
 	userStats := regionStats.Stats.Competitive
-	userStats.BattleTag = battleTag
+	// BattleTag is in URL format ("-" instead of "#")
+	userStats.BattleTag = strings.Replace(battleTag, "-", "#", -1)
 	userStats.Region = regionName
 
 	// Store to cache
