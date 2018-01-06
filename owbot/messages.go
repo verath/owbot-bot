@@ -55,9 +55,18 @@ type battleTagUpdatedData struct {
 var tmplBattleTagUpdated = template.Must(template.New("BattleTagUpdated").
 	Parse(`BattleTag for <@{{ .MentionID }}> is now "{{ .BattleTag }}"`))
 
-var tmplOverwatchProfile = template.Must(template.New("OverwatchProfile").Parse(strings.TrimSpace(`
-__**{{ .BattleTag }} (competitive)**__
-**Level:** {{ .OverallStats.Level }} +{{ .OverallStats.Prestige }}
+var tmplOverwatchProfileFuncs = template.FuncMap{
+	"LevelPrestige": func(prestige, level int) int {
+		return prestige*100 + level
+	},
+}
+
+var tmplOverwatchProfile = template.Must(template.
+	New("OverwatchProfile").
+	Funcs(tmplOverwatchProfileFuncs).
+	Parse(strings.TrimSpace(`
+__**{{ .BattleTag }} (Competitive)**__
+**Level:** {{ LevelPrestige .OverallStats.Prestige .OverallStats.Level }}
 **Rank:** {{ .OverallStats.CompRank }}
 **K/D:** {{ .GameStats.Eliminations -}} / {{- .GameStats.Deaths }}  ({{ .GameStats.KPD }} KPD)
 **Win Rate:** {{ printf "%.2f" .OverallStats.WinRate }}%
