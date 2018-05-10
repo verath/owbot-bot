@@ -152,6 +152,12 @@ func (bot *Bot) handleDiscordMessage(chanMessage *discordgo.Message) error {
 func (bot *Bot) showProfile(ctx context.Context, args []string, chanMessage *discordgo.Message) error {
 	channelID := chanMessage.ChannelID
 
+	// The lookup may potentially take some time, indicate that we are working
+	// on it by triggering the typing indicator
+	if err := bot.discordSession.ChannelTyping(channelID); err != nil {
+		return errors.Wrap(err, "failed sending typing status to channel")
+	}
+
 	var battleTag string
 	if len(args) == 1 && regexBattleTag.MatchString(args[0]) {
 		// !ow profile <BattleTag>
