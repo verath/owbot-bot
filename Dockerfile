@@ -2,7 +2,7 @@
 #
 # docker build . -t vearth/owbot-bot
 
-FROM golang:1.9-alpine
+FROM golang:1.10-alpine
 
 COPY . /go/src/github.com/verath/owbot-bot
 
